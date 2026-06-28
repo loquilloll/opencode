@@ -1,0 +1,14 @@
+Use this tool to start a new plan file or a subplan of the current plan, and make it the active plan.
+
+The active plan is the file whose path is shown in the Plan File Info reminder. This tool creates a fresh plan at the next iteration, writes it from the plan template, and points the session at it so subsequent turns and the build agent target the new file.
+
+Call this tool:
+- When the user's request is a new concern that does not belong in the current plan (set parent to false)
+- When the user's request is a refinement or breakdown of the current plan and deserves its own file (set parent to true)
+
+Do NOT call this tool:
+- When the request fits the current plan -- just edit the active plan file in place with the edit/write tools
+- Before you have read the current active plan and understood whether the request is related
+
+Parameters:
+- parent: When true, the new plan is recorded as a subplan of the current active plan (its path is written into the new plan's frontmatter). When false or omitted, the new plan is independent.

@@ -156,3 +156,90 @@ const table = sqliteTable("session", {
 - Keep delivery vocabulary explicit. Prompts steer by default and coalesce into the active activity at the next safe provider-turn boundary. Explicit `queue` inputs open FIFO future activities one at a time after the active activity settles.
 - Keep EventV2 replay owner claims separate from clustered Session execution ownership.
 - Keep the System Context algebra, registry, and built-ins in `src/system-context`; keep Context Source producers with their observed domains, and keep Session History selection plus Context Epoch persistence Session-owned.
+
+## Tool Development
+
+Adding a new built-in tool requires four changes, not just the definition:
+
+1. **Define** the tool in `packages/opencode/src/tool/<name>.ts` using `Tool.define(id, Effect.gen(...))`. The `execute` function's Effect must have `R = never` (no unprovided services) — yield services in the outer `Effect.gen`, then `Effect.provideService(Service, value)` any service that inner calls (like `Session.plan` which requires `ConfigFork.Service` and `FSUtil.Service`) require.
+2. **Register** in `packages/opencode/src/tool/registry.ts`: yield the tool in the `Effect.all` block, add it to the `tool` object, and add it to the `builtin` array (conditionally gated if needed).
+3. **Permission** in `packages/opencode/src/agent/agent.ts`: add `tool_name: "deny"` to `defaults` and `tool_name: "allow"` to the specific agent(s) that should use it. The `defaults` object has `"*": "allow"`, so without an explicit deny every agent sees every tool.
+4. **TUI display rule** in `packages/opencode/src/cli/cmd/run/tool.ts`: add the tool type to `ToolDefs`, add a `run<Tool>(p)` function, and add an entry to the `TOOL_RULES` object. Without this the TUI falls back to generic formatting.
+
+Export parameter schemas at module scope (`export const Parameters = Schema.Struct({...})`) so `test/tool/parameters.test.ts` can import them for JSON-schema snapshots without running the tool's Effect init.
+
+## Built-in Plugins
+
+Built-in server plugins are registered in `packages/opencode/src/plugin/index.ts`'s `internalPlugins()` function alongside the auth plugins. They use the same `Plugin` type (`(input: PluginInput) => Promise<Hooks>`) as external npm plugins but can import internal modules directly.
+
+Key hooks and their purposes:
+- `event` — receives `{ type, properties }`. For session idle detection: `event.type === "session.status"` and `properties.status.type === "idle"`, with `properties.sessionID`.
+- `config` — mutates the config object to register slash commands: `cfg.command[name] = { template: "", description: "..." }`.
+- `command.execute.before` — handles slash commands. Match `input.command`, parse `input.arguments`, write `output.parts` (cast to `any` since the SDK `Part` type requires server-assigned fields like `id`/`messageID`).
+- `tool` — exposes agent-callable tools via the `tool()` helper from `@opencode-ai/plugin`.
+- `experimental.session.compacting` — inject context strings into the compaction prompt so plugin state survives context compression.
+
+The `input.client` (opencode SDK client) is used for session operations: `client.session.get({ path: { id } })`, `client.session.update({ path: { id }, body: { metadata } })`, `client.session.promptAsync({ path: { id }, body: { parts: [...] } })`.
+
+Session metadata (`session.metadata`, a freeform `Record<string, any>`) is the lightweight way to store per-session plugin state without a schema migration. `session.setMetadata` replaces the entire metadata object, so use read-modify-write: GET current metadata, spread it, add/update the key, PATCH it back.
+
+## TUI Sidebar Plugins
+
+Built-in TUI sidebar components live in `packages/tui/src/feature-plugins/sidebar/<name>.tsx` and are registered in `builtins.ts`'s `createBuiltinPlugins()` return array.
+
+The slot registration pattern:
+```tsx
+const tui: TuiPlugin = async (api) => {
+  api.slots.register({
+    order: 350,  // 100=context, 200=mcp, 300=lsp, 400=todo, 500=files
+    slots: {
+      sidebar_content(_ctx, props) {
+        return <View api={api} session_id={props.session_id} />
+      },
+    },
+  })
+}
+```
+
+Reactive state: call `api.state.session.messages(session_id)` inside a `createMemo` to trigger re-renders when messages change. Read session metadata via `api.state.session.get(session_id)?.metadata`. Use a 1-second `setInterval` + `createSignal` for live timers, cleaned up with `onCleanup`.
+
+Controls: clickable elements use `onMouseDown={() => ...}` handlers. Send commands via `api.client.session.command({ sessionID, command, arguments })`. Show toast feedback via `api.ui.toast({ message, variant })`.
+
+Theme colors: use `api.theme.current.success`, `.warning`, `.text`, `.textMuted`. Do not use raw color names like `.green` or `.yellow` — they don't exist on the theme type.
+
+## Plan Mode Architecture
+
+Plan mode is driven by `packages/opencode/src/session/reminders.ts` (`SessionReminders.apply`), which runs each turn and pushes synthetic text parts into the last user message:
+
+- **Plan agent turn** (current agent is `plan`, previous assistant was not `plan`): resolves the active plan path via `Session.plan()`, seeds the plan file from template if it doesn't exist, and injects `${planInfo}` (the plan-file status line) into the `PLAN_MODE` prompt.
+- **Build switch** (current agent is not `plan`, previous assistant was `plan`): injects `BUILD_SWITCH` text with the plan path, telling the build agent to execute the plan.
+
+The active plan is tracked by `session.metadata.activePlanPath` (a persistent pointer). `Session.plan()` consults it first, then falls back to slug/id filename matching, then to iteration bump. The `forceNew` option skips the pointer/match to compute a fresh iteration.
+
+Plan tools (`plan_create`, `plan_exit`, `plan_complete`) are registered unconditionally in `registry.ts` but restricted by agent permissions in `agent.ts` (allowed for plan/build, denied for all others). The `plan_exit` tool starts implementation mode by writing `session.metadata.planImpl`.
+
+The plan-mode workflow prompt lives in `packages/opencode/src/session/prompt/plan-mode.txt` with `${planInfo}` as the only runtime-substituted placeholder. The plan file template is `plan-template.txt` with `${timestamp}`, `${iteration}`, `${slug}`, `${parent}`, `${title}`, `${sessionId}` placeholders.
+
+## Live Testing with psmux
+
+On Windows, use psmux (the tmux-compatible multiplexer) instead of tmux:
+
+```powershell
+psmux new-session -d -s octest -c "packages/opencode"
+psmux send-keys -t octest 'bun dev' Enter
+Start-Sleep 8; psmux capture-pane -p -t octest -S -30
+```
+
+- Send literal text with `send-keys -l 'text'` then `send-keys Enter` separately (sending them together can cause the TUI to misinterpret input as a shell command).
+- Cycle agents with `send-keys Tab`.
+- Navigate dialog options with `send-keys Down` / `send-keys Enter`.
+- The `capture-pane -p -S -N` flag captures N lines of scrollback.
+- Kill with `psmux kill-session -t octest` when done.
+
+Query session state directly from the SQLite DB for debugging:
+```ts
+const db = new Database(`${home}/.local/share/opencode/opencode.db`, { readonly: true })
+const row = db.query(`SELECT id, agent, metadata FROM session WHERE id = ?`).get(sid)
+```
+The main project DB is `opencode.db`; the local-scope DB is `opencode-local.db`. Sessions have a `metadata` JSON column.
+

@@ -24,7 +24,7 @@ import type { GlobTool } from "@/tool/glob"
 import type { GrepTool } from "@/tool/grep"
 import type { InvalidTool } from "@/tool/invalid"
 import type { LspTool } from "@/tool/lsp"
-import type { PlanExitTool } from "@/tool/plan"
+import type { PlanExitTool, PlanCreateTool } from "@/tool/plan"
 import type { QuestionTool } from "@/tool/question"
 import type { ReadTool } from "@/tool/read"
 import type { SkillTool } from "@/tool/skill"
@@ -110,6 +110,7 @@ type ToolDefs = {
   websearch: typeof WebSearchTool
   skill: typeof SkillTool
   plan_exit: typeof PlanExitTool
+  plan_create: typeof PlanCreateTool
 }
 
 type ToolName = keyof ToolDefs
@@ -474,6 +475,15 @@ function runPlanExit(p: ToolProps<typeof PlanExitTool>): ToolInline {
   return {
     icon: "→",
     title: text(p.frame.state.title) || "Switching to build agent",
+    mode: "block",
+    body: p.frame.status === "completed" ? text(p.frame.state.output) : undefined,
+  }
+}
+
+function runPlanCreate(p: ToolProps<typeof PlanCreateTool>): ToolInline {
+  return {
+    icon: "+",
+    title: text(p.frame.state.title) || "Created plan",
     mode: "block",
     body: p.frame.status === "completed" ? text(p.frame.state.output) : undefined,
   }
@@ -1228,6 +1238,16 @@ const TOOL_RULES = {
       final: false,
     },
     run: runPlanExit,
+    scroll: {
+      start: () => "",
+    },
+  },
+  plan_create: {
+    view: {
+      output: true,
+      final: false,
+    },
+    run: runPlanCreate,
     scroll: {
       start: () => "",
     },

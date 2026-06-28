@@ -27,6 +27,7 @@ import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
+import { ConfigFork } from "@/config/fork"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -106,6 +107,7 @@ export const layer = Layer.effect(
     const plugin = yield* Plugin.Service
     const commands = yield* Command.Service
     const config = yield* Config.Service
+    const forkConfig = yield* ConfigFork.Service
     const permission = yield* Permission.Service
     const fsys = yield* FSUtil.Service
     const mcp = yield* MCP.Service
@@ -1234,6 +1236,7 @@ export const layer = Layer.effect(
             Effect.provideService(RuntimeFlags.Service, flags),
             Effect.provideService(FSUtil.Service, fsys),
             Effect.provideService(Session.Service, sessions),
+            Effect.provideService(ConfigFork.Service, forkConfig),
           )
 
           const msg: SessionV1.Assistant = {
@@ -1561,6 +1564,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(
       Layer.mergeAll(
         Agent.defaultLayer,
+        ConfigFork.defaultLayer,
         Database.defaultLayer,
         SystemPrompt.defaultLayer,
         LLM.defaultLayer,
@@ -1675,7 +1679,7 @@ const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi
 const placeholderRegex = /\$(\d+)/g
 const quoteTrimRegex = /^["']|["']$/g
 
-export const node = LayerNode.make(layer, [
+export const node = LayerNode.make(layer.pipe(Layer.provide(ConfigFork.defaultLayer)), [
   SessionStatus.node,
   Session.node,
   Agent.node,

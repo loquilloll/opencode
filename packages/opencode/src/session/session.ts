@@ -45,6 +45,9 @@ import { NonNegativeInt, optionalOmitUndefined } from "@opencode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { ConfigFork } from "@/config/fork"
+import { FSUtil } from "@opencode-ai/core/fs-util"
+import { resolveDir } from "./plan-path"
 
 const runtime = makeRuntime(Database.Service, Database.defaultLayer)
 
@@ -374,12 +377,82 @@ export const Event = {
   }),
 }
 
-export function plan(input: { slug: string; time: { created: number } }, instance: InstanceContext) {
-  const base = instance.project.vcs
-    ? path.join(instance.worktree, ".opencode", "plans")
-    : path.join(Global.Path.data, "plans")
-  return path.join(base, [input.time.created, input.slug].join("-") + ".md")
+function escapeRegExp(input: string) {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
+
+function namePattern(template: string, input?: { slug: string; id: string }) {
+  const source = template
+    .split(/(\$\{iteration\}|\$\{slug\}|\$\{sessionId\})/g)
+    .map((part) => {
+      if (part === "${iteration}") return "(?<iteration>\\d+)"
+      if (part === "${slug}") return input ? escapeRegExp(input.slug) : "[^/\\\\]+?"
+      if (part === "${sessionId}") return input ? escapeRegExp(input.id) : "[^/\\\\]+?"
+      return escapeRegExp(part)
+    })
+    .join("")
+  return new RegExp(`^${source}$`)
+}
+
+function matchIteration(filepath: string, template: string, input?: { slug: string; id: string }) {
+  return path.basename(filepath).match(namePattern(template, input))?.groups?.iteration
+}
+
+function matchesName(filepath: string, template: string, input: { slug: string; id: string }) {
+  return namePattern(template, input).test(path.basename(filepath))
+}
+
+function renderName(template: string, vars: { iteration: string; slug: string; id: string }) {
+  return template
+    .replaceAll("${iteration}", vars.iteration)
+    .replaceAll("${slug}", vars.slug)
+    .replaceAll("${sessionId}", vars.id)
+}
+
+function isSafePlanName(name: string) {
+  return name.endsWith(".md") && name === path.basename(name) && name === path.posix.basename(name)
+}
+
+export const plan = Effect.fn("Session.plan")(function* (
+  input: { id: string; slug: string; title: string; time: { created: number }; metadata?: Record<string, unknown> },
+  instance: InstanceContext,
+  options?: { forceNew?: boolean },
+) {
+  const fork = yield* ConfigFork.Service
+  const cfg = yield* fork.get()
+  const fsys = yield* FSUtil.Service
+  const dir = resolveDir(cfg.plan?.path, instance)
+
+  const nameTemplate = cfg.plan?.name ?? "${iteration}-${slug}.md"
+  const files = yield* fsys.glob("*.md", { cwd: dir, absolute: true, include: "file" }).pipe(
+    Effect.orElseSucceed((): string[] => []),
+  )
+
+  if (!options?.forceNew) {
+    const pointer = input.metadata?.activePlanPath
+    if (typeof pointer === "string" && pointer) {
+      const exists = yield* fsys.existsSafe(pointer)
+      if (exists) return { path: pointer, iteration: matchIteration(pointer, nameTemplate, input) ?? "00" }
+    }
+
+    const existing = files.find((f) => matchesName(f, nameTemplate, input))
+    if (existing) return { path: existing, iteration: matchIteration(existing, nameTemplate, input) ?? "00" }
+  }
+
+  const max = Math.max(-1, ...files.flatMap((f) => {
+    const iteration = matchIteration(f, nameTemplate)
+    return iteration ? [Number(iteration)] : []
+  }))
+  const iteration = String(max + 1).padStart(2, "0")
+  const name = renderName(nameTemplate, { iteration, slug: input.slug, id: input.id })
+  if (isSafePlanName(name)) return { path: path.join(dir, name), iteration }
+
+  yield* Effect.logWarning("invalid plan filename template, using default", { template: nameTemplate, name })
+  return {
+    path: path.join(dir, renderName("${iteration}-${slug}.md", { iteration, slug: input.slug, id: input.id })),
+    iteration,
+  }
+})
 
 export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?: ProviderMetadata }) => {
   const safe = (value: number) => {

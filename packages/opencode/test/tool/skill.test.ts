@@ -26,10 +26,12 @@ const baseCtx: Omit<Tool.Context, "ask"> = {
 afterEach(async () => {
   await disposeAllInstances()
 })
+import { ConfigFork } from "@/config/fork"
 
 const node = CrossSpawnSpawner.defaultLayer
 
-const it = testEffect(Layer.mergeAll(ToolRegistry.defaultLayer, node).pipe(Layer.provide(Ripgrep.defaultLayer)))
+const it = testEffect(Layer.mergeAll(ToolRegistry.defaultLayer, node).pipe(Layer.provide(ConfigFork.defaultLayer), Layer.provide(Ripgrep.defaultLayer)))
+
 
 describe("tool.skill", () => {
   it.instance("execute returns skill content block with files", () =>

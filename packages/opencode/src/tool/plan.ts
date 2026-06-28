@@ -4,13 +4,17 @@ import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { Question } from "../question"
 import { Session } from "@/session/session"
+import { SessionReminders } from "@/session/reminders"
 import { MessageV2 } from "../session/message-v2"
 import { Provider } from "@/provider/provider"
 import { InstanceState } from "@/effect/instance-state"
 import { MessageID, PartID } from "../session/schema"
+import { FSUtil } from "@opencode-ai/core/fs-util"
+import { ConfigFork } from "@/config/fork"
 import EXIT_DESCRIPTION from "./plan-exit.txt"
+import CREATE_DESCRIPTION from "./plan-create.txt"
 
-export const Parameters = Schema.Struct({})
+export const ExitParameters = Schema.Struct({})
 
 export const PlanExitTool = Tool.define(
   "plan_exit",
@@ -18,15 +22,21 @@ export const PlanExitTool = Tool.define(
     const session = yield* Session.Service
     const question = yield* Question.Service
     const provider = yield* Provider.Service
+    const fork = yield* ConfigFork.Service
+    const fsys = yield* FSUtil.Service
 
     return {
       description: EXIT_DESCRIPTION,
-      parameters: Parameters,
+      parameters: ExitParameters,
       execute: (_params: {}, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           const info = yield* session.get(ctx.sessionID)
-          const plan = path.relative(instance.worktree, Session.plan(info, instance))
+          const { path: planAbs } = yield* Session.plan(info, instance).pipe(
+            Effect.provideService(ConfigFork.Service, fork),
+            Effect.provideService(FSUtil.Service, fsys),
+          )
+          const plan = path.relative(instance.worktree, planAbs)
           const answers = yield* question.ask({
             sessionID: ctx.sessionID,
             questions: [
@@ -44,6 +54,23 @@ export const PlanExitTool = Tool.define(
           })
 
           if (answers[0]?.[0] === "No") yield* new Question.RejectedError()
+
+          const now = Date.now()
+          yield* session.setMetadata({
+            sessionID: ctx.sessionID,
+            metadata: {
+              ...info.metadata,
+              planImpl: {
+                status: "implementing",
+                title: info.title || plan,
+                planPath: planAbs,
+                startedAt: now,
+                activeStartedAt: now,
+                timeUsedSeconds: 0,
+                reviewIteration: 0,
+              },
+            },
+          })
 
           const messages = yield* session.messages({ sessionID: ctx.sessionID }).pipe(Effect.orDie)
           const lastUser = messages.findLast((item) => item.info.role === "user" && item.info.model)
@@ -64,13 +91,76 @@ export const PlanExitTool = Tool.define(
             messageID: msg.id,
             sessionID: ctx.sessionID,
             type: "text",
-            text: `The plan at ${plan} has been approved, you can now edit files. Execute the plan`,
+            text: `The plan at ${plan} has been approved. You are now in implementation mode — execute the plan. When implementation is complete and verified, call the plan_complete tool to trigger code review.`,
             synthetic: true,
           } satisfies SessionV1.TextPart)
 
           return {
             title: "Switching to build agent",
             output: "User approved switching to build agent. Wait for further instructions.",
+            metadata: {},
+          }
+        }).pipe(Effect.orDie),
+    }
+  }),
+)
+
+const CreateParameters = Schema.Struct({
+  parent: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "When true, the new plan is recorded as a subplan of the current active plan. When false or omitted, the new plan is independent.",
+  }),
+})
+
+export const PlanCreateTool = Tool.define(
+  "plan_create",
+  Effect.gen(function* () {
+    const session = yield* Session.Service
+    const fork = yield* ConfigFork.Service
+    const fsys = yield* FSUtil.Service
+
+    return {
+      description: CREATE_DESCRIPTION,
+      parameters: CreateParameters,
+      execute: (params: Schema.Schema.Type<typeof CreateParameters>, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+          const info = yield* session.get(ctx.sessionID)
+          const cfg = yield* fork.get()
+
+          const parentRel = params.parent
+            ? yield* Effect.gen(function* () {
+                const current = yield* Session.plan(info, instance).pipe(
+                  Effect.provideService(ConfigFork.Service, fork),
+                  Effect.provideService(FSUtil.Service, fsys),
+                )
+                const exists = yield* fsys.existsSafe(current.path)
+                return exists ? path.relative(instance.worktree, current.path) : undefined
+              })
+            : undefined
+
+          const { path: planAbs, iteration } = yield* Session.plan(info, instance, { forceNew: true }).pipe(
+            Effect.provideService(ConfigFork.Service, fork),
+            Effect.provideService(FSUtil.Service, fsys),
+          )
+
+          const template = yield* SessionReminders.loadPlanTemplate(cfg, instance.worktree).pipe(
+            Effect.provideService(FSUtil.Service, fsys),
+          )
+          const rendered = SessionReminders.renderPlanTemplate(template, { ...info, iteration, parent: parentRel })
+          yield* fsys.ensureDir(path.dirname(planAbs)).pipe(Effect.andThen(fsys.writeFileString(planAbs, rendered)))
+
+          yield* session.setMetadata({
+            sessionID: ctx.sessionID,
+            metadata: { ...info.metadata, activePlanPath: planAbs },
+          })
+
+          const planRel = path.relative(instance.worktree, planAbs)
+          return {
+            title: `Created plan ${iteration}`,
+            output: parentRel
+              ? `Created subplan at ${planRel} (parent: ${parentRel}). It is now the active plan.`
+              : `Created plan at ${planRel}. It is now the active plan.`,
             metadata: {},
           }
         }).pipe(Effect.orDie),

@@ -3,7 +3,18 @@ Plan mode is active. The user indicated that they do not want you to execute yet
 
 ## Plan File Info:
 ${planInfo}
-You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
+You should build your plan incrementally by writing to or editing this file. NOTE that the active plan file shown above is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
+
+## Managing Plans
+
+The plan file shown above is the **active plan**. Each turn it is re-resolved, so it always reflects the plan you are currently working on.
+
+Decide how the user's request relates to the active plan:
+- If the request fits the active plan, edit it in place with the edit/write tools. The active plan stays the same.
+- If the request is a new, unrelated concern that deserves its own plan, call the `plan_create` tool (without `parent`). This starts a fresh plan at the next iteration and makes it the active plan.
+- If the request is a refinement or breakdown of the active plan that deserves its own file, call the `plan_create` tool with `parent: true`. This creates a subplan linked to the active plan (its path is recorded in the new plan's frontmatter) and makes the subplan the active plan.
+
+Read the active plan and any sibling plans (you can glob the plan directory and read their frontmatter) before deciding. Do not create a new plan or subplan when editing the active plan in place is sufficient.
 
 ## Plan Workflow
 
@@ -60,11 +71,20 @@ Goal: Write your final plan to the plan file (the only file you can edit).
 - Include the paths of critical files to be modified
 - Include a verification section describing how to test the changes end-to-end (run the code, use MCP tools, run tests)
 
-### Phase 5: Call plan_exit tool
-At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call plan_exit to indicate to the user that you are done planning.
+### Phase 5: Plan Review & Remediation
+Goal: Have the written plan reviewed and remediate any issues before requesting approval.
+
+1. Launch a `@plan-review` subagent on the active plan file. Pass it the plan file path, the user's original request, and any constraints or context it needs.
+2. Read the review feedback and remediate the plan file in place — address gaps, incorrect assumptions, missing verification steps, or scope concerns the reviewer raises.
+3. If the reviewer flags deep design issues, loop back to Phase 2 (Design) or Phase 3 (Review) before rewriting the plan. Do not call `plan_exit` until the reviewer's blocking concerns are resolved.
+
+**Critical:** You MUST run `@plan-review` and remediate the plan before calling `plan_exit`. Skipping the review and going straight to `plan_exit` is not permitted.
+
+### Phase 6: Call plan_exit tool
+At the very end of your turn, once the plan has been written, reviewed with `@plan-review`, and remediated - you should always call plan_exit to indicate to the user that you are done planning.
 This is critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 reasons.
 
-**Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does.
+**Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does. The `@plan-review` step is the quality gate before that approval request.
 
 NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.
 </system-reminder>

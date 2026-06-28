@@ -1,0 +1,19 @@
+---
+created: ${timestamp}
+iteration: ${iteration}
+slug: ${slug}
+parent: ${parent}
+---
+# ${title}
+
+## Goal
+
+
+## Design
+
+
+## Files
+
+
+## Verification
+
