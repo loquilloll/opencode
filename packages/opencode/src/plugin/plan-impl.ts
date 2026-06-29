@@ -25,10 +25,10 @@ Do not call plan_complete until you have verified the implementation against the
 
 const REVIEW_PROMPT = `The plan at {planPath} has been implemented. Now run a code review:
 1. Generate a comprehensive prompt for the @code-reviewer subagent covering the entire chat-to-agent change set. Reference the plan file so the reviewer can check completeness.
-2. Spawn the @code-reviewer subagent with that prompt.
+2. Spawn the @code-reviewer subagent with that prompt. Note the task_id returned — you will reuse it for every subsequent re-review.
 3. Read the review findings. Remediate all HIGH and MEDIUM severity items.
-4. Re-run the @code-reviewer subagent on the remediated changes.
-5. Repeat until all HIGH and MEDIUM items are resolved.
+4. Re-review by resuming the SAME @code-reviewer task using its task_id (pass the task_id to the task tool, do not spawn a new code-reviewer). This preserves the reviewer's context across iterations.
+5. Repeat — always resuming the original task_id — until all HIGH and MEDIUM items are resolved.
 When the review is clean, report the final status to the user. Do not call plan_complete again — the review IS the completion step.`
 
 const STAGNANT_PROMPT = `You appear to be stuck. Re-read the plan at {planPath}, identify what is blocking progress, and either ask the user a clarifying question or adjust your approach. Do not repeat the same failed action.`
