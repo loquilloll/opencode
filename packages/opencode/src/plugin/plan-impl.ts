@@ -25,11 +25,11 @@ Do not call plan_complete until you have verified the implementation against the
 
 const REVIEW_PROMPT = `The plan at {planPath} has been implemented. Now run a code review:
 1. Generate a comprehensive prompt for the @code-reviewer subagent covering the entire chat-to-agent change set. Reference the plan file so the reviewer can check completeness.
-2. Spawn the @code-reviewer subagent with that prompt. Note the task_id returned — you will reuse it for every subsequent re-review.
-3. Read the review findings. Remediate all HIGH and MEDIUM severity items.
-4. Re-review by resuming the SAME @code-reviewer task using its task_id (pass the task_id to the task tool, do not spawn a new code-reviewer). This preserves the reviewer's context across iterations.
-5. Repeat — always resuming the original task_id — until all HIGH and MEDIUM items are resolved.
-When the review is clean, report the final status to the user. Do not call plan_complete again — the review IS the completion step.`
+2. Spawn the @code-reviewer subagent with that prompt. Note the task_id returned — you will reuse it for every subsequent re-review to preserve the reviewer's context.
+3. Read the review findings. Remediate all HIGH and MEDIUM severity items in the code.
+4. Resume the SAME @code-reviewer task (using its task_id) to re-review the remediated changes. Do not spawn a new code-reviewer.
+5. If the re-review returns more items, remediate and resume the reviewer again. The code-reviewer session determines when the plan is done — when it reports no remaining HIGH or MEDIUM items, the review is complete.
+Report the final status to the user. Do not call plan_complete again.`
 
 const STAGNANT_PROMPT = `You appear to be stuck. Re-read the plan at {planPath}, identify what is blocking progress, and either ask the user a clarifying question or adjust your approach. Do not repeat the same failed action.`
 
@@ -55,6 +55,7 @@ export async function PlanImplPlugin(input: PluginInput): Promise<Hooks> {
   const pending = new Set<string>()
   const lastResume = new Map<string, number>()
   const stagnantCount = new Map<string, number>()
+  const reviewStarted = new Set<string>()
 
   async function readState(sessionID: string): Promise<PlanImplState | undefined> {
     try {
@@ -84,6 +85,11 @@ export async function PlanImplPlugin(input: PluginInput): Promise<Hooks> {
 
   async function resume(sessionID: string, state: PlanImplState): Promise<void> {
     if (pending.has(sessionID)) return
+
+    // REVIEW_PROMPT is sent exactly once per review cycle. After that the agent
+    // runs the review loop autonomously — it does not need re-prompting.
+    if (state.status === "reviewing" && reviewStarted.has(sessionID)) return
+
     const now = Date.now()
     if (now - (lastResume.get(sessionID) ?? 0) < RESUME_DEBOUNCE_MS) return
 
@@ -97,6 +103,7 @@ export async function PlanImplPlugin(input: PluginInput): Promise<Hooks> {
     const template = isStagnant ? STAGNANT_PROMPT : isReview ? REVIEW_PROMPT : IMPL_PROMPT
     const text = template.replaceAll("{planPath}", state.planPath)
 
+    if (isReview) reviewStarted.add(sessionID)
     pending.add(sessionID)
     lastResume.set(sessionID, now)
     await sendPrompt(sessionID, text)
@@ -129,6 +136,7 @@ export async function PlanImplPlugin(input: PluginInput): Promise<Hooks> {
             reviewIteration: 0,
           })
           stagnantCount.set(context.sessionID, 0)
+          reviewStarted.delete(context.sessionID)
           return {
             title: "Implementation complete — starting review",
             output:
