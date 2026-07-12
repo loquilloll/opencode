@@ -4,7 +4,6 @@ import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { Question } from "../question"
 import { Session } from "@/session/session"
-import { SessionReminders } from "@/session/reminders"
 import { MessageV2 } from "../session/message-v2"
 import { Provider } from "@/provider/provider"
 import { InstanceState } from "@/effect/instance-state"
@@ -37,6 +36,14 @@ export const PlanExitTool = Tool.define(
             Effect.provideService(FSUtil.Service, fsys),
           )
           const plan = path.relative(instance.worktree, planAbs)
+          const exists = yield* fsys.existsSafe(planAbs)
+          if (!exists) {
+            return {
+              title: "No plan file found",
+              output: `No plan file exists at ${plan} (or the active-plan pointer). Write the plan first, then call plan_exit again.`,
+              metadata: {},
+            }
+          }
           const answers = yield* question.ask({
             sessionID: ctx.sessionID,
             questions: [
@@ -106,9 +113,9 @@ export const PlanExitTool = Tool.define(
 )
 
 const CreateParameters = Schema.Struct({
-  parent: Schema.optional(Schema.Boolean).annotate({
+  name: Schema.optional(Schema.String).annotate({
     description:
-      "When true, the new plan is recorded as a subplan of the current active plan. When false or omitted, the new plan is independent.",
+      "Filename for the plan (e.g. `01-feature-x.md` for a new top-level plan, or `00.01-detail.md` for a subplan of `00`). Must be a safe markdown basename following the naming convention. If omitted, the next top-level iteration is generated. The agent decides new-vs-subplan by the filename: a dotted iteration makes it a subplan.",
   }),
 })
 
@@ -126,29 +133,19 @@ export const PlanCreateTool = Tool.define(
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           const info = yield* session.get(ctx.sessionID)
-          const cfg = yield* fork.get()
 
-          const parentRel = params.parent
-            ? yield* Effect.gen(function* () {
-                const current = yield* Session.plan(info, instance).pipe(
-                  Effect.provideService(ConfigFork.Service, fork),
-                  Effect.provideService(FSUtil.Service, fsys),
-                )
-                const exists = yield* fsys.existsSafe(current.path)
-                return exists ? path.relative(instance.worktree, current.path) : undefined
-              })
-            : undefined
-
-          const { path: planAbs, iteration } = yield* Session.plan(info, instance, { forceNew: true }).pipe(
+          // The agent decides whether this is a new plan or a subplan by the
+          // filename it passes: a dotted iteration (e.g. 00.01-x.md) is a subplan;
+          // a plain name (e.g. 01-x.md) or an omitted name is a new top-level plan.
+          // This tool never writes the file — the agent authors it with write/edit.
+          const { path: planAbs, iteration, parent: parentAbs } = yield* Session.plan(
+            info,
+            instance,
+            params.name ? { name: params.name } : { forceNew: true },
+          ).pipe(
             Effect.provideService(ConfigFork.Service, fork),
             Effect.provideService(FSUtil.Service, fsys),
           )
-
-          const template = yield* SessionReminders.loadPlanTemplate(cfg, instance.worktree).pipe(
-            Effect.provideService(FSUtil.Service, fsys),
-          )
-          const rendered = SessionReminders.renderPlanTemplate(template, { ...info, iteration, parent: parentRel })
-          yield* fsys.ensureDir(path.dirname(planAbs)).pipe(Effect.andThen(fsys.writeFileString(planAbs, rendered)))
 
           yield* session.setMetadata({
             sessionID: ctx.sessionID,
@@ -156,11 +153,12 @@ export const PlanCreateTool = Tool.define(
           })
 
           const planRel = path.relative(instance.worktree, planAbs)
+          const parentRel = parentAbs ? path.relative(instance.worktree, parentAbs) : undefined
           return {
-            title: `Created plan ${iteration}`,
+            title: `Registered plan ${iteration}`,
             output: parentRel
-              ? `Created subplan at ${planRel} (parent: ${parentRel}). It is now the active plan.`
-              : `Created plan at ${planRel}. It is now the active plan.`,
+              ? `Active plan is now ${planRel} (subplan ${iteration} of ${parentRel}). Write the plan content to ${planRel} with the write tool and record \`parent: ${parentRel}\` in its frontmatter.`
+              : `Active plan is now ${planRel}. Write the plan content to ${planRel} with the write tool.`,
             metadata: {},
           }
         }).pipe(Effect.orDie),

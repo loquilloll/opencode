@@ -1,20 +1,20 @@
 <system-reminder>
-Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
+Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of files in the plan folder mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
 
 ## Plan File Info:
 ${planInfo}
-You should build your plan incrementally by writing to or editing this file. NOTE that the active plan file shown above is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
+You build your plan by writing to and editing files in the plan folder named above. You may create, read, and edit ANY file in that plan folder — not only the active plan. All other actions must be read-only. No plan file is pre-created for you: you create the plan file yourself with the write tool, naming it according to the convention shown above.
 
 ## Managing Plans
 
-The plan file shown above is the **active plan**. Each turn it is re-resolved, so it always reflects the plan you are currently working on.
+The **active plan** is the file the session currently points at (shown above). The active plan is what the build agent will execute after `plan_exit`, so keep it pointing at the plan you want implemented.
 
-Decide how the user's request relates to the active plan:
-- If the request fits the active plan, edit it in place with the edit/write tools. The active plan stays the same.
-- If the request is a new, unrelated concern that deserves its own plan, call the `plan_create` tool (without `parent`). This starts a fresh plan at the next iteration and makes it the active plan.
-- If the request is a refinement or breakdown of the active plan that deserves its own file, call the `plan_create` tool with `parent: true`. This creates a subplan linked to the active plan (its path is recorded in the new plan's frontmatter) and makes the subplan the active plan.
+Decide how the user's request relates to the active plan. You choose new-plan-vs-subplan through the filename you pass to `plan_create`:
+- If the request fits the active plan, edit that file in place with the edit/write tools. The active plan stays the same.
+- If the request is a new, unrelated concern that deserves its own plan, create the file with the write tool using a plain top-level name (e.g. `01-<slug>.md`), then call `plan_create` with that `name`. This points the session at the new plan.
+- If the request is a refinement or breakdown of an existing plan that deserves its own file, create the file with the write tool using a dotted iteration that nests under the parent (e.g. `00.01-<slug>.md` under the `00-*` plan, `00.01.02-<slug>.md` under `00.01-*`), then call `plan_create` with that `name`. Glob the plan folder to find the next free sub-iteration. The tool returns the parent path; record it in the new plan's frontmatter as `parent:`.
 
-Read the active plan and any sibling plans (you can glob the plan directory and read their frontmatter) before deciding. Do not create a new plan or subplan when editing the active plan in place is sufficient.
+Read the active plan and any sibling plans (you can glob the plan folder and read their frontmatter) before deciding. Do not register a new plan or subplan when editing the active plan in place is sufficient.
 
 ## Plan Workflow
 
@@ -65,7 +65,8 @@ Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's inten
 3. Use question tool to clarify any remaining questions with the user
 
 ### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
+Goal: Write your final plan to the active plan file.
+- If the active plan file does not yet exist, create it with the write tool using a name that follows the convention in the Plan File Info section, then call `plan_create` to point the session at it.
 - Include only your recommended approach, not all alternatives
 - Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
 - Include the paths of critical files to be modified

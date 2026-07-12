@@ -385,7 +385,7 @@ function namePattern(template: string, input?: { slug: string; id: string }) {
   const source = template
     .split(/(\$\{iteration\}|\$\{slug\}|\$\{sessionId\})/g)
     .map((part) => {
-      if (part === "${iteration}") return "(?<iteration>\\d+)"
+      if (part === "${iteration}") return "(?<iteration>\\d+(?:\\.\\d+)*)"
       if (part === "${slug}") return input ? escapeRegExp(input.slug) : "[^/\\\\]+?"
       if (part === "${sessionId}") return input ? escapeRegExp(input.id) : "[^/\\\\]+?"
       return escapeRegExp(part)
@@ -394,8 +394,8 @@ function namePattern(template: string, input?: { slug: string; id: string }) {
   return new RegExp(`^${source}$`)
 }
 
-function matchIteration(filepath: string, template: string, input?: { slug: string; id: string }) {
-  return path.basename(filepath).match(namePattern(template, input))?.groups?.iteration
+function matchIteration(filepath: string, template: string) {
+  return path.basename(filepath).match(namePattern(template))?.groups?.iteration
 }
 
 function matchesName(filepath: string, template: string, input: { slug: string; id: string }) {
@@ -413,10 +413,46 @@ function isSafePlanName(name: string) {
   return name.endsWith(".md") && name === path.basename(name) && name === path.posix.basename(name)
 }
 
+// Iterations are dotted hierarchical strings: "00" (top level), "00.01" (subplan of 00),
+// "00.01.02" (subplan of 00.01), etc. Each segment is zero-padded to 2 digits.
+
+function iterationsIn(files: string[], template: string): string[] {
+  return files.flatMap((f) => {
+    const iteration = matchIteration(f, template)
+    return iteration ? [iteration] : []
+  })
+}
+
+function nextIteration(iterations: string[]): string {
+  // Next top-level iteration, ignoring subplans. Top-level plans are zero-indexed
+  // ("00" first). Subplan numbering is supplied by the agent via dotted filenames.
+  let max = -1
+  for (const iteration of iterations) {
+    if (iteration.split(".").length !== 1) continue
+    const n = Number(iteration)
+    if (Number.isFinite(n)) max = Math.max(max, n)
+  }
+  return String(max + 1).padStart(2, "0")
+}
+
+function isTopLevel(iteration: string | undefined): boolean {
+  return !!iteration && iteration.split(".").length === 1
+}
+
+// For a subplan iteration like "00.01", return the absolute path of its parent
+// plan (the file whose iteration is "00"). Returns undefined for top-level plans
+// or when no matching parent file is present.
+function parentPlanFile(files: string[], iteration: string, template: string): string | undefined {
+  const parts = iteration.split(".")
+  if (parts.length < 2) return undefined
+  const parentIter = parts.slice(0, -1).join(".")
+  return files.find((f) => matchIteration(f, template) === parentIter)
+}
+
 export const plan = Effect.fn("Session.plan")(function* (
   input: { id: string; slug: string; title: string; time: { created: number }; metadata?: Record<string, unknown> },
   instance: InstanceContext,
-  options?: { forceNew?: boolean },
+  options?: { forceNew?: boolean; name?: string },
 ) {
   const fork = yield* ConfigFork.Service
   const cfg = yield* fork.get()
@@ -428,30 +464,47 @@ export const plan = Effect.fn("Session.plan")(function* (
     Effect.orElseSucceed((): string[] => []),
   )
 
+  // Attach the parent plan path when the resolved plan is a subplan (dotted iteration).
+  const finalize = (pathValue: string, iterationValue: string) => ({
+    path: pathValue,
+    iteration: iterationValue,
+    parent: parentPlanFile(files, iterationValue, nameTemplate),
+  })
+
+  // Agent-supplied name: use it verbatim when it is a safe markdown basename. A
+  // dotted name (e.g. 00.01-x.md) makes this a subplan; a plain name is a new
+  // top-level plan. The agent decides by the filename it passes.
+  if (options?.name) {
+    if (isSafePlanName(options.name)) {
+      return finalize(path.join(dir, options.name), matchIteration(options.name, nameTemplate) ?? "00")
+    }
+    yield* Effect.logWarning("unsafe plan name, falling back to convention", { name: options.name })
+  }
+
   if (!options?.forceNew) {
     const pointer = input.metadata?.activePlanPath
     if (typeof pointer === "string" && pointer) {
       const exists = yield* fsys.existsSafe(pointer)
-      if (exists) return { path: pointer, iteration: matchIteration(pointer, nameTemplate, input) ?? "00" }
+      if (exists) return finalize(pointer, matchIteration(pointer, nameTemplate) ?? "00")
     }
 
-    const existing = files.find((f) => matchesName(f, nameTemplate, input))
-    if (existing) return { path: existing, iteration: matchIteration(existing, nameTemplate, input) ?? "00" }
+    // Slug/id fallback: prefer a top-level plan so a stray subplan never shadows the main plan.
+    const existing = files.find((f) => {
+      if (!matchesName(f, nameTemplate, input)) return false
+      return isTopLevel(matchIteration(f, nameTemplate))
+    })
+    if (existing) return finalize(existing, matchIteration(existing, nameTemplate) ?? "00")
   }
 
-  const max = Math.max(-1, ...files.flatMap((f) => {
-    const iteration = matchIteration(f, nameTemplate)
-    return iteration ? [Number(iteration)] : []
-  }))
-  const iteration = String(max + 1).padStart(2, "0")
+  const iteration = nextIteration(iterationsIn(files, nameTemplate))
   const name = renderName(nameTemplate, { iteration, slug: input.slug, id: input.id })
-  if (isSafePlanName(name)) return { path: path.join(dir, name), iteration }
+  if (isSafePlanName(name)) return finalize(path.join(dir, name), iteration)
 
   yield* Effect.logWarning("invalid plan filename template, using default", { template: nameTemplate, name })
-  return {
-    path: path.join(dir, renderName("${iteration}-${slug}.md", { iteration, slug: input.slug, id: input.id })),
+  return finalize(
+    path.join(dir, renderName("${iteration}-${slug}.md", { iteration, slug: input.slug, id: input.id })),
     iteration,
-  }
+  )
 })
 
 export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?: ProviderMetadata }) => {

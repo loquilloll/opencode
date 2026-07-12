@@ -1,14 +1,21 @@
-Use this tool to start a new plan file or a subplan of the current plan, and make it the active plan.
+Use this tool to register a plan file (that you have written or are about to write with the write tool) as the active plan.
 
-The active plan is the file whose path is shown in the Plan File Info reminder. This tool creates a fresh plan at the next iteration, writes it from the plan template, and points the session at it so subsequent turns and the build agent target the new file.
+This tool does NOT write the plan file. You author the plan content yourself with the write/edit tools. This tool points the session at the file you choose so that subsequent turns and the build agent target it.
+
+You decide whether the plan is a new top-level plan or a subplan through the FILENAME you pass via `name`:
+- New top-level plan: use a plain iteration, e.g. `01-feature-x.md` (or omit `name` to auto-generate the next top-level iteration).
+- Subplan: use a dotted iteration that nests under a parent, e.g. `00.01-detail.md` is a subplan of the `00-*` plan, `00.01.02-x.md` is a sub-subplan of `00.01-*`. Glob the plan folder to find the next free sub-iteration number.
+
+When you register a subplan, the tool finds the parent plan file and returns its path so you can record `parent: <path>` in the new plan's frontmatter.
 
 Call this tool:
-- When the user's request is a new concern that does not belong in the current plan (set parent to false)
-- When the user's request is a refinement or breakdown of the current plan and deserves its own file (set parent to true)
+- After creating a plan file for a concern that does not belong in the current plan (new top-level plan)
+- After creating a plan file that refines or breaks down an existing plan (subplan, dotted name)
+- When you have written your first plan file and need to point the session at it
 
 Do NOT call this tool:
 - When the request fits the current plan -- just edit the active plan file in place with the edit/write tools
 - Before you have read the current active plan and understood whether the request is related
 
 Parameters:
-- parent: When true, the new plan is recorded as a subplan of the current active plan (its path is written into the new plan's frontmatter). When false or omitted, the new plan is independent.
+- name: Filename for the plan, following the naming convention. A dotted iteration (e.g. `00.01-detail.md`) makes it a subplan of the matching parent; a plain name (e.g. `01-feature-x.md`) makes it a new top-level plan. If omitted, the next top-level iteration is generated automatically.
