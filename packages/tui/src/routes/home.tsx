@@ -9,6 +9,7 @@ import { usePromptRef } from "../context/prompt"
 import { useLocal } from "../context/local"
 import { usePluginRuntime } from "../plugin/runtime"
 import { useEditorContext } from "../context/editor"
+import { useProject } from "../context/project"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useTuiConfig } from "../config"
 import { HomeSessionDestinationProvider } from "./home/session-destination"
@@ -28,6 +29,7 @@ export function Home() {
   const args = useArgs()
   const local = useLocal()
   const editor = useEditorContext()
+  const project = useProject()
   const dimensions = useTerminalDimensions()
   const tuiConfig = useTuiConfig()
   const promptMaxWidth = createMemo(() => {
@@ -39,6 +41,15 @@ export function Home() {
 
   onMount(() => {
     editor.clearSelection()
+    // Viewing a workspace-scoped session activates that workspace and repoints
+    // sync.path.directory at the worktree. A new session should start in the
+    // main project, so drop the workspace and re-sync back to the main instance
+    // when returning home. Without this the destination default (and the rest
+    // of the home screen state) keeps pointing at the previously viewed worktree.
+    if (project.workspace.current()) {
+      project.workspace.set(undefined)
+      void sync.bootstrap({ fatal: false })
+    }
   })
 
   const bind = (r: PromptRef | undefined) => {
