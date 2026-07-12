@@ -86,3 +86,18 @@ This file tracks fork-specific changes made to opencode so they are easy to audi
 - Motivation: the dev/source launch path (un run ./src/index.ts, i.e. how this fork is started as opf17) eagerly evaluated the full command-module graph on every invocation. mcp (@modelcontextprotocol/sdk + @clack/prompts) and un alone added ~1.8s of cold-start cost; the eager set added ~1.5s+ even for --version/--help/the default TUI. Lazy loading cuts fork cold start from ~2.7s to ~1.6s (--version), bringing it within ~0.8s of the published compiled binary.
 - Each command already defers its own heavy work (Effect runtime, providers) via dynamic imports inside its handler, so deferring the module itself is safe; builders run on demand under yargs strict mode, and aliases (uth, plug) are preserved.
 - --help now uses the promise form parse() (the legacy parse(args, cb) callback returns an empty help string with async builders), with the logo prepended only for top-level help to match prior behavior.
+
+## Configurable `@`-mention Search Index (ripgrep backend)
+
+- The `@`-mention fuzzy search builds its index via ripgrep (`FileSystemSearch.ripgrepLayer`), which previously skipped all hidden directories, hiding opencode-owned paths like `.opencode/plans`.
+- Added a tunable search-index config surfaced through `opencode-fork.jsonc` under a new `search` section:
+  - `hidden` (boolean, default `true` in the fork) — toggles ripgrep `--hidden` so dot-prefixed paths are indexed.
+  - `ignore` (string array, default preset) — ripgrep glob patterns to exclude from the index; preset covers common noisy hidden directories (`.git`, `.cache`, `.turbo`, `.next`, `.idea`, `.vscode`, etc.) while leaving `.opencode/**` visible.
+- Core changes:
+  - `packages/core/src/filesystem/search.ts` exports `SearchConfigOptions`, `configureSearch`, `getSearchConfig`, and `defaultSearchConfig`; the ripgrep index build reads them for `hidden` + `exclude`.
+  - `packages/core/src/ripgrep.ts` `FindInput` gained an optional `exclude` glob list, applied as `--glob=!…` in `find`.
+- Fork wiring:
+  - `packages/opencode/src/config/fork.ts` added the `search` schema, `DEFAULT_SEARCH_IGNORE` preset, `resolveSearchConfig`, and `loadGlobal` (reads only the global `opencode-fork.{jsonc,json}` files, no instance context).
+  - `packages/opencode/src/effect/app-runtime.ts` runs a `searchConfigBoot` discard layer at app boot that calls `configureSearch(resolveSearchConfig(globalFork))` before any per-location search index is built; failures are logged and fall back to core defaults. Uses a dynamic import for `configureSearch` to avoid the pre-existing `filesystem/search <-> filesystem` barrel cycle TDZ.
+- Note: the fff backend (`FileSystemSearch.fffLayer`, default off on Windows) has no hidden toggle and is unaffected; `.opencode/plans` visibility on fff-only platforms remains a follow-up.
+- Verified end-to-end via the opf17 launch path: `loadGlobal -> resolveSearchConfig -> {hidden:true, ignore:[preset]}` indexes `.opencode/plans/*.md` and excludes `.git`/`.cache` in the ripgrep index the TUI's `@`-mention reads.

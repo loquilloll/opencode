@@ -1,4 +1,4 @@
-import { Layer, ManagedRuntime } from "effect"
+import { Effect, Layer, ManagedRuntime } from "effect"
 import { attach } from "./run-service"
 import * as Observability from "@opencode-ai/core/observability"
 
@@ -53,6 +53,18 @@ import { BackgroundJob } from "@/background/job"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 
+// Apply fork search-index options (from the global opencode-fork config) before
+// any per-location search index is built. Runs once at app boot; failures are
+// non-fatal and fall back to core defaults. Uses a dynamic import so the
+// core filesystem/search <-> filesystem barrel cycle is resolved lazily.
+const searchConfigBoot = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const { configureSearch } = yield* Effect.promise(() => import("@opencode-ai/core/filesystem/search"))
+    const info = yield* ConfigFork.loadGlobal()
+    configureSearch(ConfigFork.resolveSearchConfig(info))
+  }).pipe(Effect.catchCause((cause: unknown) => Effect.logWarning("failed to apply fork search config", { error: String(cause) }))),
+).pipe(Layer.provide(FSUtil.defaultLayer))
+
 export const AppLayer = Layer.mergeAll(
   Npm.defaultLayer,
   FSUtil.defaultLayer,
@@ -100,6 +112,7 @@ export const AppLayer = Layer.mergeAll(
   Installation.defaultLayer,
   ShareNext.defaultLayer,
   SessionShare.defaultLayer,
+  searchConfigBoot,
 ).pipe(
   Layer.provideMerge(ConfigFork.defaultLayer),
   Layer.provideMerge(Ripgrep.defaultLayer),

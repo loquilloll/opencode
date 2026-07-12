@@ -11,6 +11,34 @@ import { Ripgrep } from "../ripgrep"
 import { RelativePath } from "../schema"
 import { Flag } from "../flag/flag"
 
+/**
+ * Tunable file-search index options. Set once at boot (before any location is
+ * indexed) via {@link configureSearch}. The ripgrep backend reads these while
+ * building its file/directory index so the `@`-mention fuzzy search can surface
+ * otherwise-hidden paths (e.g. `.opencode/plans`) without pulling in noisy
+ * caches. The fff backend has no hidden toggle and is unaffected.
+ */
+export interface SearchConfigOptions {
+  readonly hidden: boolean
+  readonly ignore: readonly string[]
+}
+
+export const defaultSearchConfig: SearchConfigOptions = {
+  hidden: false,
+  ignore: [],
+}
+
+let searchConfig: SearchConfigOptions = defaultSearchConfig
+
+/** Apply search-index options at boot. Partial updates merge over the current value. */
+export function configureSearch(config: Partial<SearchConfigOptions>) {
+  searchConfig = { ...searchConfig, ...config }
+}
+
+export function getSearchConfig(): SearchConfigOptions {
+  return searchConfig
+}
+
 export interface Interface {
   readonly find: (input: FileSystem.FindInput) => Effect.Effect<FileSystem.Entry[]>
   readonly glob: (input: FileSystem.GlobInput) => Effect.Effect<readonly FileSystem.Entry[]>
@@ -35,6 +63,8 @@ export const ripgrepLayer = Layer.effect(
       .find({
         cwd: location.directory,
         pattern: "*",
+        hidden: searchConfig.hidden,
+        exclude: searchConfig.ignore,
         limit: location.vcs ? Number.MAX_SAFE_INTEGER : 100_000,
         onEntry: (entry) =>
           Effect.sync(() => {
