@@ -1,9 +1,15 @@
-import { describe, expect } from "bun:test"
+// Warm `filesystem.ts` before `search.ts`: the two are mutually recursive
+// (`filesystem.ts` references `FileSystemSearch.node`, `search.ts` imports
+// `FileSystem`), so importing `search.ts` first hits a TDZ. filesystem.ts loads
+// its `search.ts` dependency in the safe order.
+import "../../src/filesystem.ts"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Effect } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
+import { configureSearch, defaultSearchConfig, getSearchConfig } from "@opencode-ai/core/filesystem/search"
 import { AbsolutePath, RelativePath } from "@opencode-ai/core/schema"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
@@ -41,4 +47,34 @@ describe("Ripgrep", () => {
       }),
     ),
   )
+})
+
+describe("FileSystemSearch.configureSearch", () => {
+  // The search-index config is a process-wide singleton; reset it before and
+  // after each test so mutations don't leak between tests or into other suites.
+  beforeEach(() => {
+    configureSearch(defaultSearchConfig)
+  })
+  afterEach(() => {
+    configureSearch(defaultSearchConfig)
+  })
+
+  test("defaults to no hidden files and no ignore globs", () => {
+    expect(getSearchConfig()).toEqual(defaultSearchConfig)
+    expect(getSearchConfig().hidden).toBe(false)
+    expect(getSearchConfig().ignore).toEqual([])
+  })
+
+  test("applies a partial update, preserving untouched fields", () => {
+    configureSearch({ hidden: true })
+    expect(getSearchConfig().hidden).toBe(true)
+    expect(getSearchConfig().ignore).toEqual([])
+  })
+
+  test("round-trips hidden + ignore globs together", () => {
+    configureSearch({ hidden: true, ignore: ["**/.cache/**", "**/.git/**"] })
+    const cfg = getSearchConfig()
+    expect(cfg.hidden).toBe(true)
+    expect(cfg.ignore).toEqual(["**/.cache/**", "**/.git/**"])
+  })
 })

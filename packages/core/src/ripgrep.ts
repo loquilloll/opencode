@@ -54,6 +54,7 @@ export interface FindInput {
   readonly limit: number
   readonly hidden?: boolean
   readonly follow?: boolean
+  readonly exclude?: readonly string[]
   readonly signal?: AbortSignal
   readonly onEntry?: (entry: Entry) => Effect.Effect<void>
 }
@@ -196,6 +197,7 @@ const layer = Layer.effect(
             ...(input.follow ? ["--follow"] : []),
             ...(input.pattern === "*" ? [] : [`--glob=${input.pattern}`]),
             "--glob=!**/.git/**",
+            ...(input.exclude ?? []).map((pattern) => `--glob=!${pattern}`),
             ".",
           ],
           parse: (line) => {
