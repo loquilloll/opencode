@@ -7,6 +7,7 @@ import { testEffect } from "../lib/effect"
 import { Agent } from "../../src/agent/agent"
 import { Auth } from "../../src/auth"
 import { Config } from "../../src/config/config"
+import { ConfigFork } from "../../src/config/fork"
 import { RuntimeFlags } from "../../src/effect/runtime-flags"
 import { Global } from "@opencode-ai/core/global"
 import { Permission } from "../../src/permission"
@@ -18,7 +19,7 @@ import { Truncate } from "../../src/tool/truncate"
 
 const agentLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   LayerNode.compile(
-    LayerNode.group([Agent.node, Plugin.node, Provider.node, Auth.node, Config.node, Skill.node, RuntimeFlags.node]),
+    LayerNode.group([Agent.node, Plugin.node, Provider.node, Auth.node, Config.node, ConfigFork.node, Skill.node, RuntimeFlags.node]),
     [[RuntimeFlags.node, RuntimeFlags.layer(flags)]],
   )
 
@@ -77,6 +78,24 @@ it.instance("plan agent denies edits except .opencode/plans/*", () =>
     expect(evalPerm(plan, "edit")).toBe("deny")
     // But specific path is allowed
     expect(Permission.evaluate("edit", ".opencode/plans/foo.md", plan!.permission).action).toBe("allow")
+  }),
+  { git: true },
+)
+
+it.instance("plan tools are permissioned per agent (plan_complete on build, plan_create/exit on plan)", () =>
+  Effect.gen(function* () {
+    const build = yield* load((svc) => svc.get("build"))
+    const plan = yield* load((svc) => svc.get("plan"))
+    expect(build).toBeDefined()
+    expect(plan).toBeDefined()
+    // plan_complete drives the implement -> review lifecycle and is called by build
+    expect(Permission.evaluate("plan_complete", "*", build!.permission).action).toBe("allow")
+    expect(Permission.evaluate("plan_complete", "*", plan!.permission).action).toBe("deny")
+    // plan_create / plan_exit are plan-agent tools
+    expect(Permission.evaluate("plan_create", "*", plan!.permission).action).toBe("allow")
+    expect(Permission.evaluate("plan_exit", "*", plan!.permission).action).toBe("allow")
+    expect(Permission.evaluate("plan_create", "*", build!.permission).action).toBe("deny")
+    expect(Permission.evaluate("plan_exit", "*", build!.permission).action).toBe("deny")
   }),
 )
 

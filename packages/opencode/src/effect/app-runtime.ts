@@ -1,4 +1,4 @@
-import { Layer, ManagedRuntime } from "effect"
+import { Effect, Layer, ManagedRuntime } from "effect"
 import { attach } from "./run-service"
 import * as Observability from "@opencode-ai/core/observability"
 
@@ -7,6 +7,7 @@ import { Database } from "@opencode-ai/core/database/database"
 import { Auth } from "@/auth"
 import { Account } from "@/account/account"
 import { Config } from "@/config/config"
+import { ConfigFork } from "@/config/fork"
 import { Git } from "@/git"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Storage } from "@/storage/storage"
@@ -55,6 +56,19 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilderV1 } from "./app-node-builder-v1"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 
+// Apply fork search-index config (ripgrep hidden/exclude) at boot, before any
+// per-location index is built. Reads only the global fork config; failures are
+// logged and fall back to core defaults. Carries its own FSUtil provision because
+// the outer Layer.provideMerge below makes this a provider to the app, not a
+// consumer of the group's services.
+const searchConfigBoot = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const { configureSearch } = yield* Effect.promise(() => import("@opencode-ai/core/filesystem/search"))
+    const info = yield* ConfigFork.loadGlobal()
+    configureSearch(ConfigFork.resolveSearchConfig(info))
+  }).pipe(Effect.catchCause((cause) => Effect.logWarning("failed to apply fork search config", { error: String(cause) }))),
+).pipe(Layer.provide(AppNodeBuilderV1.build(FSUtil.node)))
+
 export const AppLayer = AppNodeBuilderV1.build(
   LayerNode.group([
     Npm.node,
@@ -63,6 +77,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     Auth.node,
     Account.node,
     Config.node,
+    ConfigFork.node,
     Git.node,
     Storage.node,
     Snapshot.node,
@@ -106,7 +121,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     ShareNext.node,
     SessionShare.node,
   ]),
-).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(Observability.layer))
+).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(searchConfigBoot), Layer.provideMerge(Observability.layer))
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })
 type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">

@@ -27,6 +27,7 @@ import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
+import { ConfigFork } from "@/config/fork"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -122,6 +123,7 @@ const layer = Layer.effect(
     const plugin = yield* Plugin.Service
     const commands = yield* Command.Service
     const config = yield* Config.Service
+    const fork = yield* ConfigFork.Service
     const permission = yield* Permission.Service
     const fsys = yield* FSUtil.Service
     const mcp = yield* MCP.Service
@@ -1181,6 +1183,7 @@ const layer = Layer.effect(
             Effect.provideService(RuntimeFlags.Service, flags),
             Effect.provideService(FSUtil.Service, fsys),
             Effect.provideService(Session.Service, sessions),
+            Effect.provideService(ConfigFork.Service, fork),
           )
 
           const msg: SessionV1.Assistant = {
@@ -1608,6 +1611,7 @@ export const node = LayerNode.make({
     Plugin.node,
     Command.node,
     Config.node,
+    ConfigFork.node,
     Permission.node,
     FSUtil.node,
     MCP.node,

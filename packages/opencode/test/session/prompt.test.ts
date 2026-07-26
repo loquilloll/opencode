@@ -14,6 +14,7 @@ import { Agent as AgentSvc } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { Command } from "../../src/command"
 import { Config } from "@/config/config"
+import { ConfigFork } from "@/config/fork"
 import { LSP } from "@/lsp/lsp"
 import { MCP } from "../../src/mcp"
 import { Permission } from "../../src/permission"
@@ -181,6 +182,7 @@ const promptRoot = LayerNode.group([
   Permission.node,
   Plugin.node,
   Config.node,
+  ConfigFork.node,
   ProviderSvc.node,
   LSP.node,
   MCP.node,

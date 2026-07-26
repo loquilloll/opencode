@@ -1,9 +1,20 @@
 <system-reminder>
-Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
+Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of files in the plan folder mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
 
 ## Plan File Info:
 ${planInfo}
-You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
+You build your plan by writing to and editing files in the plan folder named above. You may create, read, and edit ANY file in that plan folder — not only the active plan. All other actions must be read-only. No plan file is pre-created for you: you create the plan file yourself with the write tool, naming it according to the convention shown above.
+
+## Managing Plans
+
+The **active plan** is the file the session currently points at (shown above). The active plan is what the build agent will execute after `plan_exit`, so keep it pointing at the plan you want implemented.
+
+Decide how the user's request relates to the active plan. You choose new-plan-vs-subplan through the filename you pass to `plan_create`:
+- If the request fits the active plan, edit that file in place with the edit/write tools. The active plan stays the same.
+- If the request is a new, unrelated concern that deserves its own plan, create the file with the write tool using a plain top-level name (e.g. `01-<slug>.md`), then call `plan_create` with that `name`. This points the session at the new plan.
+- If the request is a refinement or breakdown of an existing plan that deserves its own file, create the file with the write tool using a dotted iteration that nests under the parent (e.g. `00.01-<slug>.md` under the `00-*` plan, `00.01.02-<slug>.md` under `00.01-*`), then call `plan_create` with that `name`. Glob the plan folder to find the next free sub-iteration. The tool returns the parent path; record it in the new plan's frontmatter as `parent:`.
+
+Read the active plan and any sibling plans (you can glob the plan folder and read their frontmatter) before deciding. Do not register a new plan or subplan when editing the active plan in place is sufficient.
 
 ## Plan Workflow
 
@@ -33,9 +44,9 @@ You can launch up to 1 agent(s) in parallel.
 
 Examples of when to use multiple agents:
 - The task touches multiple parts of the codebase
-- It's a large refactor or architectural change
+- It is a large refactor or architectural change
 - There are many edge cases to consider
-- You'd benefit from exploring different approaches
+- You would benefit from exploring different approaches
 
 Example perspectives by task type:
 - New feature: simplicity vs performance vs maintainability
@@ -54,17 +65,27 @@ Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's inten
 3. Use question tool to clarify any remaining questions with the user
 
 ### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
+Goal: Write your final plan to the active plan file.
+- If the active plan file does not yet exist, create it with the write tool using a name that follows the convention in the Plan File Info section, then call `plan_create` to point the session at it.
 - Include only your recommended approach, not all alternatives
 - Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
 - Include the paths of critical files to be modified
-- Include a verification section describing how to test the changes end-to-end (run the code, use MCP tools, run tests)
+- Include a verification section describing how to test the changes end-to-end (run the code, run MCP tools, run tests)
 
-### Phase 5: Call plan_exit tool
-At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call plan_exit to indicate to the user that you are done planning.
-This is critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 reasons.
+### Phase 5: Plan Review & Remediation
+Goal: Have the written plan reviewed and remediate any issues before requesting approval.
 
-**Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does.
+1. Launch a `@plan-review` subagent on the active plan file. Pass it the plan file path, the user's original request, and any constraints or context it needs.
+2. Read the review feedback and remediate the plan file in place — address gaps, incorrect assumptions, missing verification steps, or scope concerns the reviewer raises.
+3. If the reviewer flags deep design issues, loop back to Phase 2 (Design) or Phase 3 (Review) before rewriting the plan. Do not call `plan_exit` until the reviewer's blocking concerns are resolved.
+
+**Critical:** You MUST run `@plan-review` and remediate the plan before calling `plan_exit`. Skipping the review and going straight to `plan_exit` is not permitted.
+
+### Phase 6: Call plan_exit tool
+At the very end of your turn, once the plan has been written, reviewed with `@plan-review`, and remediated - you should always call plan_exit to indicate to the user that you are done planning.
+This critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 reasons.
+
+**Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does. The `@plan-review` step is the quality gate before that approval request.
 
 NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.
 </system-reminder>

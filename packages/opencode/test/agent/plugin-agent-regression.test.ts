@@ -6,6 +6,7 @@ import { pathToFileURL } from "url"
 import { Agent } from "../../src/agent/agent"
 import { Account } from "../../src/account/account"
 import { Auth } from "../../src/auth"
+import { ConfigFork } from "../../src/config/fork"
 import { RuntimeFlags } from "../../src/effect/runtime-flags"
 import { Plugin } from "../../src/plugin"
 import { Provider } from "../../src/provider/provider"
@@ -27,7 +28,7 @@ const pluginUrl = pathToFileURL(path.join(import.meta.dir, "..", "fixture", "age
 
 const provider = ProviderTest.fake()
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([Agent.node, Plugin.node]), [
+  AppNodeBuilder.build(LayerNode.group([Agent.node, Plugin.node, ConfigFork.node]), [
     [Auth.node, AuthTest.empty],
     [Account.node, AccountTest.empty],
     [Npm.node, NpmTest.noop],

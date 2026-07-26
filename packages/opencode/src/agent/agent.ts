@@ -1,7 +1,10 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Config } from "@/config/config"
+import { ConfigFork } from "@/config/fork"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
+import { FSUtil } from "@opencode-ai/core/fs-util"
+import { resolveDir } from "@/session/plan-path"
 import { Provider } from "@/provider/provider"
 
 import { generateObject, streamObject, type ModelMessage } from "ai"
@@ -89,6 +92,7 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
+    const fork = yield* ConfigFork.Service
     const auth = yield* Auth.Service
     const plugin = yield* Plugin.Service
     const skill = yield* Skill.Service
@@ -98,6 +102,10 @@ const layer = Layer.effect(
     const state = yield* InstanceState.make<State>(
       Effect.fn("Agent.state")(function* (ctx) {
         const cfg = yield* config.get()
+        const forkCfg = yield* fork.get()
+        const planDir = resolveDir(forkCfg.plan?.path, ctx)
+        const planFileGlob = path.join(planDir, "*.md")
+        const planInsideWorktree = ctx.worktree !== "/" && FSUtil.contains(ctx.worktree, planDir)
         const skillDirs = yield* skill.dirs()
         const referenceDirs = Object.keys(cfg.references ?? cfg.reference ?? {}).length
           ? yield* Effect.gen(function* () {
@@ -126,6 +134,8 @@ const layer = Layer.effect(
           question: "deny",
           plan_enter: "deny",
           plan_exit: "deny",
+          plan_create: "deny",
+          plan_complete: "deny",
           // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
           read: {
             "*": "allow",
@@ -147,6 +157,7 @@ const layer = Layer.effect(
               Permission.fromConfig({
                 question: "allow",
                 plan_enter: "allow",
+                plan_complete: "allow",
               }),
               user,
             ),
@@ -162,16 +173,17 @@ const layer = Layer.effect(
               Permission.fromConfig({
                 question: "allow",
                 plan_exit: "allow",
+                plan_create: "allow",
                 task: {
                   general: "deny",
                 },
                 external_directory: {
-                  [path.join(Global.Path.data, "plans", "*")]: "allow",
+                  ...(planInsideWorktree ? {} : { [path.join(planDir, "*")]: "allow" }),
                 },
                 edit: {
                   "*": "deny",
-                  [path.join(".opencode", "plans", "*.md")]: "allow",
-                  [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
+                  [planFileGlob]: "allow",
+                  [path.relative(ctx.worktree, planFileGlob)]: "allow",
                 },
               }),
               user,
@@ -264,7 +276,7 @@ const layer = Layer.effect(
           },
         }
 
-        for (const [key, value] of Object.entries(cfg.agent ?? {})) {
+        for (const [key, value] of Object.entries(mergeDeep(cfg.agent ?? {}, forkCfg.agent ?? {}))) {
           if (value.disable) {
             delete agents[key]
             continue
@@ -447,7 +459,7 @@ const locationServiceMapNode = LayerNode.make({
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Config.node, Auth.node, Plugin.node, Skill.node, Provider.node, locationServiceMapNode],
+  deps: [Config.node, ConfigFork.node, Auth.node, Plugin.node, Skill.node, Provider.node, locationServiceMapNode],
 })
 
 export * as Agent from "./agent"
