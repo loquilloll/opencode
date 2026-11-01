@@ -36,26 +36,23 @@ export function resolve(input: Target): Entrypoints {
       try {
         return resolveModule(specifier, target.directory)
       } catch (error) {
-        // Bun's resolver throws ResolveMessage without a `code` property, unlike
-        // Node's coded ERR_MODULE_NOT_FOUND family. A failed entrypoint probe is
-        // "not found", never fatal: treat ResolveMessage like ENOENT so a missing
-        // package stays pending (and installable) and an absent subpath stays
-        // undefined instead of dying the whole plugin reload.
-        const resolveMessage =
-          error instanceof Error &&
-          (error.name === "ResolveMessage" || error.constructor?.name === "ResolveMessage")
+        // Bun's resolver throws ResolveMessage, which carries coded not-found
+        // reasons like Node's but does not extend Error, so an instanceof gate
+        // never consults them. A failed entrypoint probe is "not found", never
+        // fatal: match on the code for both shapes so a missing package stays
+        // pending (and installable) and an absent subpath stays undefined
+        // instead of dying the whole plugin reload.
+        const code = (error as { code?: unknown } | undefined)?.code
         if (
-          !resolveMessage &&
-          (!(error instanceof Error) ||
-            !("code" in error) ||
-            ![
-              "ENOENT",
-              "ENOTDIR",
-              "MODULE_NOT_FOUND",
-              "ERR_MODULE_NOT_FOUND",
-              "ERR_PACKAGE_PATH_NOT_EXPORTED",
-              "ERR_UNSUPPORTED_DIR_IMPORT",
-            ].includes(String(error.code)))
+          typeof code !== "string" ||
+          ![
+            "ENOENT",
+            "ENOTDIR",
+            "MODULE_NOT_FOUND",
+            "ERR_MODULE_NOT_FOUND",
+            "ERR_PACKAGE_PATH_NOT_EXPORTED",
+            "ERR_UNSUPPORTED_DIR_IMPORT",
+          ].includes(code)
         )
           throw error
       }
