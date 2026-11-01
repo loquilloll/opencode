@@ -105,13 +105,15 @@ function mergeFork(target: Info, source: Info): Info {
 }
 
 const global = roots("opencode")
+// Honor OPENCODE_CONFIG_DIR the same way the Global service does.
+const configDir = process.env.OPENCODE_CONFIG_DIR ?? global.config
 
 const decodeInfo = Schema.decodeUnknownOption(Info, { onExcessProperty: "ignore" } as const)
 
 const safeLoad = Effect.fnUntraced(function* (file: string) {
-  const text = yield* Effect.promise(() => fs.readFile(file, "utf8")).pipe(
-    Effect.orElseSucceed((): string | undefined => undefined),
-  )
+  // Missing/unreadable files resolve to undefined inside the promise so a
+  // rejection never becomes a defect (Effect.promise rejections die).
+  const text = yield* Effect.promise(() => fs.readFile(file, "utf8").then(undefined, () => undefined))
   if (text === undefined) return {}
   const errors: ParseError[] = []
   const parsed = parse(text, errors, { allowTrailingComma: true })
@@ -128,7 +130,7 @@ const safeLoad = Effect.fnUntraced(function* (file: string) {
  */
 export const loadGlobal = Effect.fnUntraced(function* () {
   let result: Info = {}
-  for (const file of [path.join(global.config, "opencode-fork.jsonc"), path.join(global.config, "opencode-fork.json")]) {
+  for (const file of [path.join(configDir, "opencode-fork.jsonc"), path.join(configDir, "opencode-fork.json")]) {
     result = mergeFork(result, yield* safeLoad(file))
   }
   return result

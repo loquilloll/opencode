@@ -5,8 +5,10 @@ import os from "os"
 import { roots } from "@opencode/util/global-roots"
 import type { Location } from "@opencode/schema/location"
 
-// Global data/config roots for plan-dir containment checks.
+// Global data/config roots for plan-dir containment checks. The config root
+// honors OPENCODE_CONFIG_DIR the same way the Global service does.
 const global = roots("opencode")
+const configDir = process.env.OPENCODE_CONFIG_DIR ?? global.config
 
 function contains(parent: string, child: string) {
   const relative = path.relative(parent, child)
@@ -34,7 +36,7 @@ export function resolveDir(template: string | undefined, location: Location.Info
   // Untrusted or unknown locations fall back to the default plan dir.
   const root = path.parse(worktree).root
   const insideWorktree = worktree !== root && contains(worktree, resolved)
-  if (insideWorktree || contains(global.data, resolved) || contains(global.config, resolved)) {
+  if (insideWorktree || contains(global.data, resolved) || contains(configDir, resolved)) {
     return resolved
   }
   return defaultDir
