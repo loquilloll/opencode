@@ -69,7 +69,7 @@ export const Plugin = define({
         if (outsideWorktree) item.permissions.push({ action: "external_directory", resource: "*", effect: "allow" })
       })
       editor.update(build, (item) => {
-        item.permissions.push({ action: "question", resource: "*", effect: "allow" })
+        // `question` allow already comes from the upstream AgentPlugin.
         item.permissions.push({ action: "plan_complete", resource: "*", effect: "allow" })
       })
       for (const id of ["general", "explore", "compaction", "title", "summary"]) {
