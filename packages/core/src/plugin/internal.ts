@@ -98,6 +98,7 @@ import BrowserPlugin from "@opencode/plugin-browser"
 import { CommandPlugin } from "./command.js"
 import { IdentityPlugin } from "./identity.js"
 import { PlanPlugin } from "./plan.js"
+import { PlanImplPlugin } from "./plan-impl.js"
 import { GoalPlugin } from "./goal.js"
 import { ModelsDevPlugin } from "./models-dev.js"
 import { McpCodeModeDefaultsPlugin } from "./mcp-codemode-defaults.js"
@@ -235,6 +236,7 @@ const pre = [
   VcsGitPlugin.Plugin,
   AgentPlugin.Plugin,
   PlanPlugin.Plugin,
+  PlanImplPlugin.Plugin,
   CommandPlugin.Plugin,
   GoalPlugin.Plugin,
   SkillPlugin.Plugin,
