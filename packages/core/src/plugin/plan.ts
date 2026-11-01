@@ -61,7 +61,11 @@ export const Plugin = define({
         item.permissions.push({ action: "plan_exit", resource: "*", effect: "allow" })
         item.permissions.push({ action: "plan_complete", resource: "*", effect: "allow" })
         item.permissions.push({ action: "edit", resource: "*", effect: "deny" })
+        // Both absolute and location-relative globs: the edit tools assert
+        // whichever form they resolve for the target file.
         item.permissions.push({ action: "edit", resource: path.join(directory, "*"), effect: "allow" })
+        const relative = path.relative(ctx.location.directory, path.join(directory, "*"))
+        if (!relative.startsWith("..")) item.permissions.push({ action: "edit", resource: relative, effect: "allow" })
         if (outsideWorktree) item.permissions.push({ action: "external_directory", resource: "*", effect: "allow" })
       })
       editor.update(build, (item) => {
