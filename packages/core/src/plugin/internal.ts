@@ -77,6 +77,7 @@ import { GrepTool } from "../tool/plugin/grep.js"
 import { ImageGenerateTool } from "../tool/plugin/image-generate.js"
 import { McpResourceTools } from "../tool/plugin/mcp-resource.js"
 import { OpenCodeTools } from "../tool/plugin/opencode.js"
+import { PlanTool } from "../tool/plugin/plan.js"
 import { QuestionTool } from "../tool/plugin/question.js"
 import { ReadToolFileSystem } from "../tool/read-filesystem.js"
 import { ReadTool } from "../tool/plugin/read.js"
@@ -252,6 +253,7 @@ const pre = [
   ImageGenerateTool.Plugin,
   OpenCodeTools.Plugin,
   McpResourceTools.Plugin,
+  PlanTool.Plugin,
   QuestionTool.Plugin,
   ReadTool.Plugin,
   ArtifactTools.Plugin,
