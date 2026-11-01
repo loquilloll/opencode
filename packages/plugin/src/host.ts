@@ -36,17 +36,26 @@ export function resolve(input: Target): Entrypoints {
       try {
         return resolveModule(specifier, target.directory)
       } catch (error) {
+        // Bun's resolver throws ResolveMessage without a `code` property, unlike
+        // Node's coded ERR_MODULE_NOT_FOUND family. A failed entrypoint probe is
+        // "not found", never fatal: treat ResolveMessage like ENOENT so a missing
+        // package stays pending (and installable) and an absent subpath stays
+        // undefined instead of dying the whole plugin reload.
+        const resolveMessage =
+          error instanceof Error &&
+          (error.name === "ResolveMessage" || error.constructor?.name === "ResolveMessage")
         if (
-          !(error instanceof Error) ||
-          !("code" in error) ||
-          ![
-            "ENOENT",
-            "ENOTDIR",
-            "MODULE_NOT_FOUND",
-            "ERR_MODULE_NOT_FOUND",
-            "ERR_PACKAGE_PATH_NOT_EXPORTED",
-            "ERR_UNSUPPORTED_DIR_IMPORT",
-          ].includes(String(error.code))
+          !resolveMessage &&
+          (!(error instanceof Error) ||
+            !("code" in error) ||
+            ![
+              "ENOENT",
+              "ENOTDIR",
+              "MODULE_NOT_FOUND",
+              "ERR_MODULE_NOT_FOUND",
+              "ERR_PACKAGE_PATH_NOT_EXPORTED",
+              "ERR_UNSUPPORTED_DIR_IMPORT",
+            ].includes(String(error.code)))
         )
           throw error
       }
