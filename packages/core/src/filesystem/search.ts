@@ -9,7 +9,37 @@ import { FileSystem } from "@opencode/schema/filesystem"
 import { Location } from "../location.js"
 import { Ripgrep } from "../ripgrep.js"
 import { RelativePath } from "../schema.js"
+import { ConfigFork } from "../config/fork.js"
 import { Protected } from "./protected.js"
+
+/**
+ * Tunable file-search index options. Set once before any location is indexed
+ * (the ripgrep layer applies the global fork config at init) via
+ * {@link configureSearch}. The ripgrep backend reads these while building its
+ * file/directory index so the `@`-mention fuzzy search can surface
+ * otherwise-hidden paths (e.g. `.opencode/plans`) without pulling in noisy
+ * caches. The fff backend has no hidden toggle and is unaffected.
+ */
+export interface SearchConfigOptions {
+  readonly hidden: boolean
+  readonly ignore: readonly string[]
+}
+
+export const defaultSearchConfig: SearchConfigOptions = {
+  hidden: false,
+  ignore: [],
+}
+
+let searchConfig: SearchConfigOptions = defaultSearchConfig
+
+/** Apply search-index options at boot. Partial updates merge over the current value. */
+export function configureSearch(config: Partial<SearchConfigOptions>) {
+  searchConfig = { ...searchConfig, ...config }
+}
+
+export function getSearchConfig(): SearchConfigOptions {
+  return searchConfig
+}
 
 export interface Interface {
   readonly find: (input: FileSystem.FindInput) => Effect.Effect<FileSystem.Entry[]>
@@ -57,6 +87,12 @@ const ripgrepLayer = Layer.effect(
     const scope = yield* Scope.Scope
     const clock = yield* Clock.Clock
     const home = Protected.isHome(location.directory)
+    // Apply fork search-index config (ripgrep hidden/exclude) before this
+    // location's index builds. Global config only; failures fall back to core defaults.
+    yield* ConfigFork.loadGlobal().pipe(
+      Effect.map((info) => configureSearch(ConfigFork.resolveSearchConfig(info))),
+      Effect.catchCause((cause) => Effect.logWarning("failed to apply fork search config", { cause: String(cause) })),
+    )
     let index = emptyIndex()
     let initialized = false
     let settledAt = Number.NEGATIVE_INFINITY
@@ -68,8 +104,12 @@ const ripgrepLayer = Layer.effect(
       yield* ripgrep.find({
         cwd: location.directory,
         pattern: "*",
+        hidden: searchConfig.hidden,
+        exclude: [
+          ...(home ? [...Protected.names()].map((name) => `${name}/**`) : []),
+          ...searchConfig.ignore,
+        ],
         limit: location.vcs && !home ? Number.MAX_SAFE_INTEGER : 100_000,
-        exclude: home ? [...Protected.names()].map((name) => `${name}/**`) : undefined,
         onEntry: (entry) =>
           Effect.sync(() => {
             next.files.set(entry.path, previous.files.get(entry.path) ?? fuzzysort.prepare(entry.path))
