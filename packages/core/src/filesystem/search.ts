@@ -282,4 +282,6 @@ export function configured(options?: Options) {
   return makeLocationNode({ service: Service, layer: layer(options), deps: [Location.node, Ripgrep.node] })
 }
 
-export const node = configured()
+// Fork: force the ripgrep index so `@` matches the grep/glob tools (symlinks,
+// depth cap, hidden, ignore globs, ignore files). fff honors none of those.
+export const node = configured({ fff: false })

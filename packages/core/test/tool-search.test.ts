@@ -68,7 +68,7 @@ const call = (name: "glob" | "grep", input: unknown) => ({
 
 describe("search tools", () => {
   for (const hidden of [undefined, false, true]) {
-    for (const limit of hidden ? [10] : [1, 10]) {
+    for (const limit of hidden === false ? [1, 10] : [10]) {
       it.live(`glob honors hidden=${hidden} before limit=${limit}`, () =>
         Effect.gen(function* () {
           const tmp = yield* tmpdirScoped()
@@ -85,7 +85,8 @@ describe("search tools", () => {
                 registry,
                 call("glob", { pattern: "**/*.ts", limit, ...(hidden === undefined ? {} : { hidden }) }),
               )
-              const expected = hidden
+              // Fork: omitting hidden defaults to true (dotfile parity with grep, ignore files hide noise).
+              const expected = (hidden ?? true)
                 ? [".hidden.ts", ".hidden/nested.ts", "src/.hidden.ts", "src/visible.ts"]
                 : ["src/visible.ts"]
 

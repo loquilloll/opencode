@@ -21,7 +21,7 @@ export const Input = Schema.Struct({
     description: "Directory to search. Defaults to the current working directory.",
   }),
   hidden: FileSystem.GlobInput.fields.hidden.annotate({
-    description: "Include hidden files and directories (default: false).",
+    description: "Include hidden files and directories (default: true; rely on ignore files to hide noise).",
   }),
   limit: FileSystem.GlobInput.fields.limit.annotate({
     description: `Maximum number of matching files to return (default: ${FileSystem.DEFAULT_SEARCH_LIMIT})`,
@@ -97,7 +97,8 @@ export const Plugin = {
                 .glob({
                   cwd: root,
                   pattern: input.pattern,
-                  hidden: input.hidden,
+                  // Fork: hidden by default like grep, so dotfile search parity relies on ignore files.
+                  hidden: input.hidden ?? true,
                   ignoreFiles: search.ignoreFiles,
                   limit: limit + 1,
                 })

@@ -6,6 +6,7 @@ import path from "path"
 import { Context, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
+import { ConfigFork } from "@opencode/core/config/fork"
 import { FileSystem } from "@opencode/core/filesystem"
 import { Protected } from "@opencode/core/filesystem/protected"
 import { FileSystemSearch } from "@opencode/core/filesystem/search"
@@ -258,7 +259,12 @@ describe("FileSystemSearch", () => {
         expect(observed).toBeUndefined()
         yield* search.find({ query: "src", type: "directory" })
         expect(observed?.limit).toBe(100_000)
-        expect(observed?.exclude).toEqual([...Protected.names()].map((name) => `${name}/**`))
+        // Isolated test env loads no fork config, so the scan carries the fork's
+        // default preset alongside the home-dir Protected excludes.
+        expect(observed?.exclude).toEqual([
+          ...[...Protected.names()].map((name) => `${name}/**`),
+          ...ConfigFork.DEFAULT_SEARCH_IGNORE,
+        ])
         expect((yield* search.find({ query: "src", type: "directory" }))[0]?.path).toBe(
           RelativePath.make(`src${path.sep}`),
         )
