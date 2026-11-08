@@ -73,7 +73,7 @@ Goal: Have the written plan reviewed and remediate any issues before requesting 
 Once the plan is written, reviewed with `@plan-review`, and remediated, submit it for approval in the plannotator review page:
 1. Call the `submit_plan` tool with the full active plan content as a single edit: `{ "edits": [{ "start": 1, "content": "<entire plan file content>" }] }`. Keep the plan file on disk as the source of truth — submit_plan manages its own copy for the review page.
 2. The user reviews the plan on a web page and either requests changes or approves it.
-3. If the result says the plan was NOT approved, address every piece of feedback: update the plan file, then call submit_plan again with the full updated content.
+3. If the result says the plan was NOT approved: address every piece of feedback by updating the plan file, then run another `@plan-review` cycle on the amended plan (as in Phase 5) and remediate its findings. Only then call submit_plan again with the full updated content. Every resubmission must be preceded by a fresh `@plan-review` cycle — never resubmit an amendment the reviewer subagent has not seen.
 4. When the result says the plan is approved, the session switches to the ${planAgent} agent automatically and implementation begins — end your turn.
 
 ### Phase 7: plan_exit (fallback)
