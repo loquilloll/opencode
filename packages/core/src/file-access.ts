@@ -77,6 +77,42 @@ export const resolvePath = (directory: string, input: string, home = Global.Path
   )
 }
 
+/**
+ * Reverse-symlink index for the location root, two levels deep (covers
+ * top-level links like ./local_docs and ./downstream-repos/<repo>):
+ * canonical target → in-repo link path. Models often learn the canonical
+ * target from LSP diagnostics or shell output and address it directly;
+ * mapping such paths back through the link keeps symlinked trees internal
+ * (relative resources, no external_directory prompt).
+ */
+const buildSymlinkIndex = Effect.fnUntraced(function* (fs: FSUtil.Interface, directory: string) {
+  const index = new Map<string, string>()
+  const scan: (dir: string, depth: number) => Effect.Effect<void> = Effect.fnUntraced(function* (dir, depth) {
+    const entries = yield* fs.readDirectoryEntries(dir).pipe(Effect.catch(() => Effect.void))
+    for (const entry of entries ?? []) {
+      const entryPath = path.join(dir, entry.name)
+      if (entry.type === "symlink") {
+        const target = yield* fs.resolve(entryPath).pipe(Effect.catch(() => Effect.void))
+        if (target !== undefined && target !== entryPath) index.set(target, entryPath)
+      } else if (entry.type === "directory" && depth > 0) {
+        yield* scan(entryPath, depth - 1)
+      }
+    }
+  })
+  yield* scan(directory, 1)
+  return index
+})
+
+/** Longest-prefix match of an external absolute path against the symlink index. */
+function matchSymlink(index: Map<string, string>, absolute: string) {
+  let match: { target: string; link: string } | undefined
+  for (const [target, link] of index) {
+    if ((absolute === target || absolute.startsWith(target + path.sep)) && (!match || target.length > match.target.length))
+      match = { target, link }
+  }
+  return match ? path.join(match.link, path.relative(match.target, absolute)) : undefined
+}
+
 const slash = (value: string) => value.replaceAll("\\", "/")
 const invocation = (context: Invocation) => ({
   sessionID: context.sessionID,
@@ -89,16 +125,25 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const { files } = yield* Environment.Service
     const exists = (file: string) => Environment.exists(files, file)
+    const fsUtil = yield* FSUtil.Service
     const location = yield* Location.Service
     const permission = yield* Permission.Service
 
     const resolve = Effect.fn("FileAccess.resolve")(function* (input: ResolveInput) {
-      const absolute = AbsolutePath.make(resolvePath(location.directory, input.path))
+      let absolute = AbsolutePath.make(resolvePath(location.directory, input.path))
       const worktree = path.resolve(location.project.directory)
-      const internal =
-        FSUtil.contains(location.directory, absolute) ||
-        (worktree !== path.parse(worktree).root && FSUtil.contains(worktree, absolute))
-      if (internal) {
+      const inside = (candidate: string) =>
+        FSUtil.contains(location.directory, candidate) ||
+        (worktree !== path.parse(worktree).root && FSUtil.contains(worktree, candidate))
+      // A model-supplied canonical target under a symlinked tree maps back to
+      // the in-repo link path, so out-of-worktree links stay internal. The
+      // index is scanned per external miss (cheap: two directory levels) so
+      // links created after the location opened are honored too.
+      if (!inside(absolute)) {
+        const link = matchSymlink(yield* buildSymlinkIndex(fsUtil, location.directory), absolute)
+        if (link !== undefined) absolute = AbsolutePath.make(link)
+      }
+      if (inside(absolute)) {
         return {
           absolute,
           resource: slash(path.relative(location.directory, absolute) || "."),
@@ -167,5 +212,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Environment.node, Location.node, Permission.node],
+  deps: [Environment.node, Location.node, Permission.node, FSUtil.node],
 })

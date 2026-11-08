@@ -41,7 +41,7 @@ export const Plugin = {
           name,
           options: { codemode: false },
           description:
-            "Read the contents of a file or directory. Supports text files, images, and PDFs. Images and PDFs are presented directly to the model. Each text line is prefixed by its 1-based line number as <line>: <content>. The prefix is for reference and is not part of the file content. Directory entries are returned one per line. Use offset and limit to read large files or directories in sections. Prefer one larger read over many small slices, and use grep to find specific content in large files.",
+            "Read the contents of a file or directory. Supports text files, images, and PDFs. Images and PDFs are presented directly to the model. Each text line is prefixed by its 1-based line number as <line>: <content>. The prefix is for reference and is not part of the file content. Directory entries are returned one per line. Use offset and limit to read large files or directories in sections. Prefer one larger read over many small slices, and use grep to find specific content in large files. Prefer repository-relative paths, and address symlinked directories by their in-repo link path (for example ./local_docs/...), never by the resolved absolute target.",
           input: Input,
           output: Output,
           execute: (input, context) => {

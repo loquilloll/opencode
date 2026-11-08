@@ -176,3 +176,57 @@ describe("FileAccess.authorizeRead", () => {
     }).pipe(provide(requests))
   })
 })
+
+describe("FileAccess.resolve through symlinks", () => {
+  it.live("maps a model-supplied real path back through a top-level symlink", () => {
+    const requests: Permission.AssertInput[] = []
+    return Effect.gen(function* () {
+      const location = yield* Location.Service
+      const outside = yield* tmpdirScoped()
+      const vault = path.join(outside.path, "vault")
+      yield* Effect.promise(() => fs.mkdir(vault, { recursive: true }))
+      yield* Effect.promise(() => fs.symlink(vault, path.join(location.directory, "local_docs")))
+      // Yield FileAccess only after the link exists: the reverse-symlink index builds at layer construction.
+      const access = yield* FileAccess.Service
+
+      const target = yield* access.resolve({ path: path.join(vault, "plans", "plan.md"), kind: "file" })
+      expect(target.absolute).toBe(AbsolutePath.make(path.join(location.directory, "local_docs", "plans", "plan.md")))
+      expect(target.resource).toBe("local_docs/plans/plan.md")
+      expect(target.externalDirectory).toBeUndefined()
+    }).pipe(provide(requests))
+  })
+
+  it.live("maps real paths through depth-two symlinks like downstream-repos/<repo>", () => {
+    const requests: Permission.AssertInput[] = []
+    return Effect.gen(function* () {
+      const location = yield* Location.Service
+      const outside = yield* tmpdirScoped()
+      const repo = path.join(outside.path, "repo1")
+      yield* Effect.promise(() => fs.mkdir(path.join(repo, "src"), { recursive: true }))
+      yield* Effect.promise(() => fs.mkdir(path.join(location.directory, "downstream-repos")))
+      yield* Effect.promise(() => fs.symlink(repo, path.join(location.directory, "downstream-repos", "repo1")))
+      const access = yield* FileAccess.Service
+
+      const target = yield* access.resolve({ path: path.join(repo, "src", "a.ts"), kind: "file" })
+      expect(target.resource).toBe("downstream-repos/repo1/src/a.ts")
+      expect(target.externalDirectory).toBeUndefined()
+    }).pipe(provide(requests))
+  })
+
+  it.live("authorizeRead treats a real symlink target as internal", () => {
+    const requests: Permission.AssertInput[] = []
+    return Effect.gen(function* () {
+      const location = yield* Location.Service
+      const outside = yield* tmpdirScoped()
+      const vault = path.join(outside.path, "vault")
+      yield* Effect.promise(() => fs.mkdir(vault, { recursive: true }))
+      yield* Effect.promise(() => fs.writeFile(path.join(vault, "notes.md"), "note"))
+      yield* Effect.promise(() => fs.symlink(vault, path.join(location.directory, "local_docs")))
+      const access = yield* FileAccess.Service
+
+      const target = yield* access.authorizeRead(path.join(vault, "notes.md"), invocation)
+      expect(target.resource).toBe("local_docs/notes.md")
+      expect(requests.map((request) => request.action)).toEqual(["read"])
+    }).pipe(provide(requests))
+  })
+})

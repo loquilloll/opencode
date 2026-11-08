@@ -1,4 +1,4 @@
-Use the `patch` tool to edit files. Your patch language is a stripped‑down, file‑oriented diff format designed to be easy to parse and safe to apply. You can think of it as a high‑level envelope:
+Use the `patch` tool to edit files. Prefer repository-relative paths, and address symlinked directories by their in-repo link path (for example ./local_docs/...), never by the resolved absolute target. Your patch language is a stripped‑down, file‑oriented diff format designed to be easy to parse and safe to apply. You can think of it as a high‑level envelope:
 
 *** Begin Patch
 [ one or more file sections ]

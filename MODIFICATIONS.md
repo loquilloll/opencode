@@ -52,6 +52,11 @@ Upstream v2.2.5 ships its own conversational `opencode.plan` plugin (plan agent 
 - **`search.*` is honored from GLOBAL config only** (layer init reads global fork config; project-local fork config still drives `plan`/`agent` via the per-plugin `loadForLocation`).
 - **Fork: the default search node forces the ripgrep index** (`node = configured({ fff: false })`) so `@`-mention behaves like the grep/glob tools — symlink following, depth cap, hidden, ignore globs, and ignore files all apply. The fff backend (native, frecency-ranked) honors none of those and is no longer reachable through the default node; `configured()` still exposes it for opt-in use.
 
+## Symlink-aware FileAccess (real-path rescue)
+
+- `packages/core/src/file-access.ts`: when a supplied path resolves outside the worktree, FileAccess scans the location root (two directory levels — covers `./local_docs` and `./downstream-repos/<repo>`) for symlinks and maps the longest matching canonical-target prefix back to the in-repo link path. Models often learn canonical targets from LSP diagnostics or shell output; the rewrite keeps symlinked trees internal (relative resources, no `external_directory` prompt). The scan runs per external miss, so links created mid-session are honored. Writes follow links (`fs.writeFile`), so edits still target the link's content. Known limitation: links deeper than two levels are not mapped; the V2 FileSystem HTTP service (`server/handlers/fs.ts`) still realpaths and refuses out-of-root symlink reads by design (unchanged).
+- Tool guidance (`tool/plugin/read.ts`, `edit.ts`, `write.ts`, `tool/patch.txt`): descriptions instruct the model to prefer repository-relative paths and address symlinked directories by their in-repo link path, never the resolved absolute target.
+
 ## Plugin Host Fix: entrypoint probes match resolver error codes (upstream bug)
 
 - Upstream bug in `packages/plugin/src/host.ts` `resolve()`: each entrypoint probe wraps `resolveModule` in a catch that only swallows errors where `error instanceof Error` **and** `error.code` ∈ {`ENOENT`, `ENOTDIR`, `MODULE_NOT_FOUND`, `ERR_MODULE_NOT_FOUND`, `ERR_PACKAGE_PATH_NOT_EXPORTED`, `ERR_UNSUPPORTED_DIR_IMPORT`}. Bun's resolver throws `ResolveMessage` (proto `ResolveMessage ← Object`, NOT an Error) that carries `code: "ERR_MODULE_NOT_FOUND"` — the `instanceof` gate rethrew every "not found".

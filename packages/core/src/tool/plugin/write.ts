@@ -58,7 +58,7 @@ export const Plugin = {
           name,
           options: { codemode: false, permission: "edit" },
           description:
-            "Writes a file to the local filesystem, overwriting if one exists.\n\nMissing parent directories are created automatically.\n\nUse this tool to create new files or overwrite existing files. For partial changes, use the edit tool instead.",
+            "Writes a file to the local filesystem, overwriting if one exists.\n\nMissing parent directories are created automatically.\n\nUse this tool to create new files or overwrite existing files. For partial changes, use the edit tool instead.\n\nPrefer repository-relative paths, and address symlinked directories by their in-repo link path (for example ./local_docs/...), never by the resolved absolute target.",
           input: Input,
           output: Output,
           execute: (input, context) =>
