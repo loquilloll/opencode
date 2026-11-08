@@ -137,10 +137,9 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
           },
           fs: {
             filewatcher: !truthy(process.env.OPENCODE_FILEWATCHER_DISABLE ?? process.env.OPENCODE_DISABLE_FILEWATCHER),
-            fff:
-              process.env.OPENCODE_DISABLE_FFF === undefined
-                ? process.platform !== "win32"
-                : !truthy(process.env.OPENCODE_DISABLE_FFF),
+            // Fork: fff index off by default so `@` matches the search tools (symlinks,
+            // ignore files, depth cap); opt back in with OPENCODE_ENABLE_FFF=1.
+            fff: truthy(process.env.OPENCODE_ENABLE_FFF),
           },
         },
         serviceOptions === undefined
