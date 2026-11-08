@@ -33,4 +33,9 @@ describe("FileSystemSearch.configureSearch", () => {
     expect(config.hidden).toBe(true)
     expect(config.ignore).toEqual(["**/.cache/**", "**/.git/**"])
   })
+
+  test("applies ignore files through partial update", () => {
+    configureSearch({ ignoreFiles: [".opencodeignore"] })
+    expect(getSearchConfig().ignoreFiles).toEqual([".opencodeignore"])
+  })
 })

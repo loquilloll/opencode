@@ -32,8 +32,10 @@ const AgentSchema = Schema.Record(Schema.String, ConfigAgent.Info)
 // Controls the ripgrep file-index backend used by `@`-mention fuzzy search and
 // directory listing. The fork enables hidden files by default so opencode-owned
 // paths like `.opencode/plans` are mentionable, while a preset ignore list keeps
-// noisy caches out of results. Only the ripgrep backend honors these; the fff
-// backend (default off on Windows) has no hidden toggle.
+// noisy caches out of results. `ignoreFiles` adds extra gitignore-formatted
+// ignore files to every ripgrep search (grep/glob tools included), additively
+// over .gitignore/.ignore/.rgignore. Only the ripgrep backend honors these; the
+// fff backend (default off on Windows) has no hidden toggle.
 const SearchSchema = Schema.Struct({
   hidden: Schema.optional(Schema.Boolean).annotate({
     description:
@@ -42,6 +44,10 @@ const SearchSchema = Schema.Struct({
   ignore: Schema.optional(Schema.Array(Schema.String)).annotate({
     description:
       "ripgrep glob patterns to exclude from the search index (e.g. `**/.cache/**`). Defaults to a preset covering common noisy hidden directories.",
+  }),
+  ignoreFiles: Schema.optional(Schema.Array(Schema.String)).annotate({
+    description:
+      "Extra gitignore-formatted ignore files (e.g. `.opencodeignore`) applied to every search, additive over .gitignore/.ignore/.rgignore. Relative entries resolve against the searched directory; `~/`-prefixed entries against the home directory. File-level patterns share `.gitignore` semantics under an explicit glob include (directory patterns always prune). Default: none.",
   }),
 })
 
@@ -76,12 +82,13 @@ export const Info = Schema.Struct({
 })
 export type Info = Schema.Schema.Type<typeof Info>
 
-/** Resolve effective search-index options from fork config, applying fork defaults. Shape matches `FileSystemSearch.SearchConfigOptions`. */
+/** Resolve effective search options from fork config, applying fork defaults. Shape matches `FileSystemSearch.SearchConfigOptions`. */
 export function resolveSearchConfig(info: Info) {
   const search = info.search ?? {}
   return {
     hidden: search.hidden ?? true,
     ignore: search.ignore ?? DEFAULT_SEARCH_IGNORE,
+    ignoreFiles: search.ignoreFiles ?? [],
   }
 }
 

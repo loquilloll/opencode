@@ -186,6 +186,84 @@ describe("Ripgrep", () => {
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
     ),
   )
+
+  // Symlink creation needs elevated privileges on Windows (see npm.test.ts).
+  ;(process.platform === "win32" ? it.live.skip : it.live)("follows symlinked files and directories", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* Effect.promise(() =>
+        Promise.all([
+          Bun.write(path.join(tmp.path, "real", "file.txt"), "needle\n"),
+          Bun.write(path.join(tmp.path, "real", "subdir", "nested.txt"), "needle\n"),
+          fs.symlink(path.join("real", "subdir"), path.join(tmp.path, "link-dir")),
+          fs.symlink(path.join("real", "file.txt"), path.join(tmp.path, "link-file.txt")),
+        ]),
+      )
+      const ripgrep = yield* Ripgrep.Service
+
+      const files = yield* ripgrep.find({ cwd: tmp.path, pattern: "**/*.txt", limit: 10 })
+      expect(files.map((item) => item.path)).toContain(RelativePath.make("link-dir/nested.txt"))
+      expect(files.map((item) => item.path)).toContain(RelativePath.make("link-file.txt"))
+
+      const globbed = yield* ripgrep.glob({ cwd: tmp.path, pattern: "**/*.txt", limit: 10 })
+      expect(globbed.map((item) => item.path)).toContain(RelativePath.make("link-dir/nested.txt"))
+      expect(globbed.map((item) => item.path)).toContain(RelativePath.make("link-file.txt"))
+
+      const matches = yield* ripgrep.grep({ cwd: tmp.path, pattern: "needle", limit: 10 })
+      expect(matches.map((item) => item.entry.path)).toContain(RelativePath.make("link-dir/nested.txt"))
+      expect(matches.map((item) => item.entry.path)).toContain(RelativePath.make("link-file.txt"))
+    }),
+  )
+
+  // follow defaults to true; explicit false restores the opt-out (skill file listing relies on it).
+  it.live("respects an explicit follow: false", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* Effect.promise(() =>
+        Promise.all([
+          Bun.write(path.join(tmp.path, "real", "file.txt"), "needle\n"),
+          fs.symlink(path.join("real", "file.txt"), path.join(tmp.path, "link-file.txt")),
+        ]),
+      )
+      const ripgrep = yield* Ripgrep.Service
+
+      const files = yield* ripgrep.find({ cwd: tmp.path, pattern: "**/*.txt", limit: 10, follow: false })
+      expect(files.map((item) => item.path)).toEqual([RelativePath.make("real/file.txt")])
+    }),
+  )
+
+  it.live("applies extra ignore files additively", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* Effect.promise(() =>
+        Promise.all([
+          Bun.write(path.join(tmp.path, ".myignore"), "secret/\n"),
+          Bun.write(path.join(tmp.path, "secret", "hidden.txt"), "needle\n"),
+          Bun.write(path.join(tmp.path, "open.txt"), "needle\n"),
+        ]),
+      )
+      const ripgrep = yield* Ripgrep.Service
+
+      const files = yield* ripgrep.find({
+        cwd: tmp.path,
+        pattern: "**/*.txt",
+        limit: 10,
+        ignoreFiles: [".myignore"],
+      })
+      expect(files.map((item) => item.path)).toEqual([RelativePath.make("open.txt")])
+
+      const globbed = yield* ripgrep.glob({
+        cwd: tmp.path,
+        pattern: "**/*.txt",
+        limit: 10,
+        ignoreFiles: [".myignore"],
+      })
+      expect(globbed.map((item) => item.path)).toEqual([RelativePath.make("open.txt")])
+
+      const matches = yield* ripgrep.grep({ cwd: tmp.path, pattern: "needle", limit: 10, ignoreFiles: [".myignore"] })
+      expect(matches.map((item) => item.entry.path)).toEqual([RelativePath.make("open.txt")])
+    }),
+  )
 })
 
 describe("RipgrepBinary.verify", () => {

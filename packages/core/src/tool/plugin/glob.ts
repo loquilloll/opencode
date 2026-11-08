@@ -11,6 +11,7 @@ import { FileAccess } from "../../file-access.js"
 import { Ripgrep } from "../../ripgrep.js"
 import { RelativePath } from "../../schema.js"
 import { Permission } from "../../permission.js"
+import { ConfigFork } from "../../config/fork.js"
 
 export const name = "glob"
 
@@ -50,6 +51,8 @@ export const Plugin = {
     const location = yield* Location.Service
     const access = yield* FileAccess.Service
     const permission = yield* Permission.Service
+    // Fork-configured extra ignore files (e.g. `.opencodeignore`) apply to every search.
+    const search = ConfigFork.resolveSearchConfig(yield* ConfigFork.loadGlobal())
 
     yield* ctx.tool
       .transform((editor) =>
@@ -95,6 +98,7 @@ export const Plugin = {
                   cwd: root,
                   pattern: input.pattern,
                   hidden: input.hidden,
+                  ignoreFiles: search.ignoreFiles,
                   limit: limit + 1,
                 })
                 .pipe(

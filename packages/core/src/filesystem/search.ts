@@ -18,16 +18,19 @@ import { Protected } from "./protected.js"
  * {@link configureSearch}. The ripgrep backend reads these while building its
  * file/directory index so the `@`-mention fuzzy search can surface
  * otherwise-hidden paths (e.g. `.opencode/plans`) without pulling in noisy
- * caches. The fff backend has no hidden toggle and is unaffected.
+ * caches. `ignoreFiles` also feeds every ripgrep search (grep/glob tools pass
+ * their own copy). The fff backend has no hidden toggle and is unaffected.
  */
 export interface SearchConfigOptions {
   readonly hidden: boolean
   readonly ignore: readonly string[]
+  readonly ignoreFiles: readonly string[]
 }
 
 export const defaultSearchConfig: SearchConfigOptions = {
   hidden: false,
   ignore: [],
+  ignoreFiles: [],
 }
 
 let searchConfig: SearchConfigOptions = defaultSearchConfig
@@ -109,6 +112,7 @@ const ripgrepLayer = Layer.effect(
           ...(home ? [...Protected.names()].map((name) => `${name}/**`) : []),
           ...searchConfig.ignore,
         ],
+        ignoreFiles: searchConfig.ignoreFiles,
         limit: location.vcs && !home ? Number.MAX_SAFE_INTEGER : 100_000,
         onEntry: (entry) =>
           Effect.sync(() => {

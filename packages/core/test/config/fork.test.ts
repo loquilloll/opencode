@@ -19,4 +19,11 @@ describe("ConfigFork.resolveSearchConfig", () => {
     expect(config.hidden).toBe(true)
     expect(config.ignore).toEqual([])
   })
+
+  test("ignoreFiles defaults to none and passes explicit values through", () => {
+    expect(ConfigFork.resolveSearchConfig({}).ignoreFiles).toEqual([])
+    expect(ConfigFork.resolveSearchConfig({ search: { ignoreFiles: [".opencodeignore"] } }).ignoreFiles).toEqual([
+      ".opencodeignore",
+    ])
+  })
 })

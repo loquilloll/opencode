@@ -1,5 +1,7 @@
 export * as Ripgrep from "./ripgrep.js"
 
+import os from "os"
+import path from "path"
 import { Context, Effect, Fiber, Layer, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/process"
 import { Entry, Match } from "@opencode/schema/filesystem"
@@ -57,6 +59,7 @@ export interface FindInput {
   readonly exclude?: readonly string[]
   readonly hidden?: boolean
   readonly follow?: boolean
+  readonly ignoreFiles?: readonly string[]
   readonly signal?: AbortSignal
   readonly onEntry?: (entry: Entry) => Effect.Effect<void>
 }
@@ -67,6 +70,7 @@ export interface GlobInput {
   readonly limit: number
   readonly hidden?: boolean
   readonly follow?: boolean
+  readonly ignoreFiles?: readonly string[]
   readonly signal?: AbortSignal
 }
 
@@ -78,6 +82,8 @@ export interface GrepInput {
   readonly literal?: boolean
   readonly caseSensitive?: boolean
   readonly limit: number
+  readonly follow?: boolean
+  readonly ignoreFiles?: readonly string[]
   readonly signal?: AbortSignal
 }
 
@@ -99,6 +105,15 @@ const normalizePath = (value: string) =>
 
 const isInvalidPattern = (stderr: string) =>
   stderr.includes("regex parse error") || stderr.includes("error parsing regex")
+
+function resolveIgnoreFile(entry: string, cwd: string) {
+  if (entry === "~") return os.homedir()
+  if (entry.startsWith("~/")) return path.join(os.homedir(), entry.slice(2))
+  return path.isAbsolute(entry) ? entry : path.resolve(cwd, entry)
+}
+
+const ignoreFileArgs = (entries: readonly string[] | undefined, cwd: string) =>
+  (entries ?? []).map((entry) => `--ignore-file=${resolveIgnoreFile(entry, cwd)}`)
 
 const layer = Layer.effect(
   Service,
@@ -171,8 +186,12 @@ const layer = Layer.effect(
           args: [
             "--no-config",
             "--files",
+            "--no-messages",
             ...(input.hidden ? ["--hidden"] : []),
-            ...(input.follow ? ["--follow"] : []),
+            // Symlinks are followed by default; explicit follow: false opts out. Missing
+            // ignore files and broken links only warn (--no-messages keeps them quiet).
+            ...(input.follow ?? true ? ["--follow"] : []),
+            ...ignoreFileArgs(input.ignoreFiles, input.cwd),
             `--glob=${input.pattern}`,
             // Positive globs override rg's hidden-file filter; exclude before applying the result limit.
             ...(input.hidden ? [] : ["--glob=!**/.*"]),
@@ -199,8 +218,10 @@ const layer = Layer.effect(
           args: [
             "--no-config",
             "--files",
+            "--no-messages",
             ...(input.hidden ? ["--hidden"] : []),
-            ...(input.follow ? ["--follow"] : []),
+            ...(input.follow ?? true ? ["--follow"] : []),
+            ...ignoreFileArgs(input.ignoreFiles, input.cwd),
             ...(input.pattern === "*" ? [] : [`--glob=${input.pattern}`]),
             ...(input.exclude ?? []).map((pattern) => `--glob=!${pattern}`),
             "--glob=!**/.git/**",
@@ -225,6 +246,8 @@ const layer = Layer.effect(
             "--json",
             "--hidden",
             "--no-messages",
+            ...(input.follow ?? true ? ["--follow"] : []),
+            ...ignoreFileArgs(input.ignoreFiles, input.cwd),
             ...(input.literal ? ["--fixed-strings"] : []),
             ...(input.caseSensitive === false ? ["--ignore-case"] : []),
             ...(input.include ? [`--glob=${input.include}`] : []),
