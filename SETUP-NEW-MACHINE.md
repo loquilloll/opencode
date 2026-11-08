@@ -30,17 +30,18 @@ cd ~/git/opencode-ast-grep && bun install
 
 ## 2. Config directory — `~/.local/share` and `~/.config`
 
-Everything under the opencode config dir is machine-local and shared by both forks. Copy the WHOLE tree from the existing machine (it contains `opencode.jsonc`, `auth.json`, `instructions/`, `skill/`, `plugins/`, and the ast-grep bundle):
+Everything under the opencode config dir is machine-local and shared by both forks. Copy the WHOLE tree:
 
 ```bash
 # from the old machine:
 rsync -av --exclude node_modules .config/opencode/ newmachine:.config/opencode/
 ```
 
+Credentials are NOT in the config dir — see step 2b.
+
 What must exist afterwards (build these if starting from scratch instead of copying):
 
 - `~/.config/opencode/opencode.jsonc` — shared config; its `plugin` list drives the npm plugins (`opencode-websearch`, `@mohak34/opencode-notifier@latest`, `@dietrichgebert/ponytail`, `@prevalentware/opencode-goal-plugin`, `["@plannotator/opencode@latest", {...}]`). npm plugins need NO pre-install — v2 auto-installs them on first boot (that's the fork's plugin-host fix).
-- `~/.config/opencode/auth.json` — provider credentials (or run `opencode auth login` fresh).
 - `~/.config/opencode/instructions/*.md` — referenced by opencode.jsonc.
 - `~/.config/opencode/skill/` — global skills, including the `opf2x` fork-management skill.
 - `~/.config/opencode/plugins/` — **files only, never subdirectories** (v2 turns every subdir into a package target):
@@ -55,12 +56,24 @@ mkdir -p ~/.config/opencode/ast-grep-bundle
 cp -r dist/* ~/.config/opencode/ast-grep-bundle/
 ```
 
+## 2b. Credentials (without these, opf2x has NO providers)
+
+v2 keeps credentials in its SQLite DB, and a freshly created DB stamps every migration as done **without replaying the legacy `auth.json` import**. Copying `~/.local/share/opencode/auth.json` to a new machine therefore imports nothing and leaves you with zero providers (only the free `opencode` one). Move them through the CLI instead:
+
+```bash
+# old machine
+opencode auth export > ~/opencode-auth.json        # or: opencode auth export <integration>
+# new machine (after the exe exists, step 5, though any build works)
+opencode auth import ~/opencode-auth.json
+```
+
+Or connect from scratch with `opencode auth login`. Verify with `opencode auth list` and `opencode models` (expect your providers, not an empty list).
+
 ## 3. Databases (fresh start vs. carry history)
 
 Fresh start needs nothing — each fork creates its DB on first run. To carry history from the old machine, copy the four DBs (plus `-wal`/`-shm` sidecars) into `~/.local/share/opencode/`:
 
 - `opencode.db` (npm/dev shared), `opencode-opf18.db` (opf18, frozen), `opencode-opf2x.db` (opf2x), `opencode-pre-opf2x.db` (rollback snapshot)
-- Optional: `auth.json` lives here too if not copying via config dir (check which location your version reads — v2 reads `~/.local/share/opencode/auth.json`).
 
 Rules (see the `opf2x` skill): nothing newer than opf18 ever opens `opencode-opf18.db`; every scripted invocation pins `OPENCODE_DB`.
 
