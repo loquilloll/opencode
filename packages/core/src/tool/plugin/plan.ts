@@ -210,7 +210,11 @@ export const Plugin = {
       Effect.gen(function* () {
         if (event.tool !== "submit_plan" || event.agent !== plan || event.status !== "completed") return
         const content = event.result.content
-        if (typeof content !== "string" || !content.startsWith("Plan approved")) return
+        // The tool runtime normalizes string results into text parts before
+        // this hook fires, so accept both shapes.
+        const text =
+          typeof content === "string" ? content : content?.map((part) => (part.type === "text" ? part.text : "")).join("")
+        if (!text?.startsWith("Plan approved")) return
         const info = yield* ctx.session.get({ sessionID: event.sessionID })
         if (info.metadata?.["planImpl"] !== undefined) return
         yield* startImplementation(event.sessionID)

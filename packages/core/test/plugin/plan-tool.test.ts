@@ -125,6 +125,8 @@ const run = Effect.fnUntraced(function* (location?: Location.Info) {
 
 type CompletedEvent = Extract<ToolHooks["execute.after"], { readonly status: "completed" }>
 
+// The tool runtime normalizes string results into text parts before
+// execute.after fires; production events always carry the array form.
 const submitResult = (content: string, agent: Agent.ID = plan): CompletedEvent => ({
   tool: "submit_plan",
   input: {},
@@ -133,7 +135,7 @@ const submitResult = (content: string, agent: Agent.ID = plan): CompletedEvent =
   messageID: SessionMessage.ID.make("msg_plan_tool"),
   id: Tool.CallID.make("call_plan_tool"),
   status: "completed",
-  result: { content },
+  result: { content: [{ type: "text", text: content }] },
 })
 
 const APPROVED = "Plan approved! Saved to: /tmp/plan.md"
