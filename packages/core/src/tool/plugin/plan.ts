@@ -3,6 +3,7 @@ export * as PlanTool from "./plan.js"
 import type { Context } from "@opencode/plugin/effect/plugin"
 import { ToolFailure } from "@opencode/ai/effect"
 import { Agent } from "@opencode/schema/agent"
+import type { Session } from "@opencode/schema/session"
 import { Effect, Schema } from "effect"
 import path from "path"
 import { Form } from "../../form.js"
@@ -12,6 +13,7 @@ import { SessionPlan } from "../../session/plan.js"
 import CREATE_DESCRIPTION from "./plan/create.txt"
 import EXIT_DESCRIPTION from "./plan/exit.txt"
 
+const plan = Agent.ID.make("plan")
 const build = Agent.ID.make("build")
 
 const CreateInput = Schema.Struct({
@@ -89,6 +91,36 @@ export const Plugin = {
       }),
     )
 
+    // Shared exit tail for plan_exit and the submit_plan approval hook: mark
+    // the session implementing, switch to the build agent, and admit the
+    // synthetic prompt that starts the plan_complete review lifecycle.
+    const startImplementation = Effect.fn("PlanTool.startImplementation")(function* (sessionID: Session.ID) {
+      const info = yield* ctx.session.get({ sessionID })
+      const resolved = yield* SessionPlan.plan({ id: info.id, title: info.title, metadata: info.metadata }, ctx.location, fork)
+      const planRel = path.relative(ctx.location.directory, resolved.path)
+      const now = Date.now()
+      yield* ctx.session.update({
+        sessionID,
+        metadata: {
+          ...info.metadata,
+          planImpl: {
+            status: "implementing",
+            title: info.title ?? planRel,
+            planPath: resolved.path,
+            startedAt: now,
+            activeStartedAt: now,
+            timeUsedSeconds: 0,
+            reviewIteration: 0,
+          },
+        },
+      })
+      yield* ctx.session.switchAgent({ sessionID, agent: build })
+      yield* ctx.session.synthetic({
+        sessionID,
+        text: `The plan at ${planRel} has been approved. You are now in implementation mode — execute the plan. When implementation is complete and verified, call the plan_complete tool to trigger code review.`,
+      })
+    })
+
     yield* ctx.tool.transform((editor) =>
       editor.add({
         name: "plan_exit",
@@ -150,27 +182,7 @@ export const Plugin = {
               return yield* Effect.fail(new ToolFailure({ message: "The user declined switching to the build agent" }))
             }
 
-            const now = Date.now()
-            yield* ctx.session.update({
-              sessionID: context.sessionID,
-              metadata: {
-                ...info.metadata,
-                planImpl: {
-                  status: "implementing",
-                  title: info.title ?? planRel,
-                  planPath: plan.path,
-                  startedAt: now,
-                  activeStartedAt: now,
-                  timeUsedSeconds: 0,
-                  reviewIteration: 0,
-                },
-              },
-            })
-            yield* ctx.session.switchAgent({ sessionID: context.sessionID, agent: build })
-            yield* ctx.session.synthetic({
-              sessionID: context.sessionID,
-              text: `The plan at ${planRel} has been approved. You are now in implementation mode — execute the plan. When implementation is complete and verified, call the plan_complete tool to trigger code review.`,
-            })
+            yield* startImplementation(context.sessionID)
             return {
               output: { plan: planRel, switched: true },
               content: "User approved switching to build agent. Wait for further instructions.",
@@ -182,6 +194,32 @@ export const Plugin = {
             ),
           ),
       }),
+    )
+
+    // Plannotator integration: an approved submit_plan review IS the user
+    // approving the plan in the web UI, so run the plan_exit tail directly
+    // (the approval replaces the Build Agent Yes/No form) and the
+    // plan_complete review loop starts without waiting for the plan agent
+    // to call plan_exit itself.
+    // shortcut: approval is detected by the "Plan approved" tool-result
+    // prefix; a customized plannotator plan.approved prompt that drops that
+    // prefix silently skips this hook (the agent then falls back to plan_exit).
+    yield* ctx.tool.hook("execute.after", (event) =>
+      Effect.gen(function* () {
+        if (event.tool !== "submit_plan" || event.agent !== plan || event.status !== "completed") return
+        const content = event.result.content
+        if (typeof content !== "string" || !content.startsWith("Plan approved")) return
+        const info = yield* ctx.session.get({ sessionID: event.sessionID })
+        if (info.metadata?.["planImpl"] !== undefined) return
+        yield* startImplementation(event.sessionID)
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("failed to start implementation after plan approval", {
+            sessionID: event.sessionID,
+            cause,
+          }),
+        ),
+      ),
     )
   }),
 }
