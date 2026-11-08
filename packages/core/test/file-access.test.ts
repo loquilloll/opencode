@@ -230,3 +230,34 @@ describe("FileAccess.resolve through symlinks", () => {
     }).pipe(provide(requests))
   })
 })
+
+describe("FileAccess.resolve external boundaries", () => {
+  it.live("still marks unmatched external paths external, including sibling prefixes", () => {
+    const requests: Permission.AssertInput[] = []
+    return Effect.gen(function* () {
+      const location = yield* Location.Service
+      const outside = yield* tmpdirScoped()
+      const vault = path.join(outside.path, "vault")
+      const sibling = path.join(outside.path, "vault2")
+      yield* Effect.promise(() => fs.mkdir(vault, { recursive: true }))
+      yield* Effect.promise(() => fs.mkdir(sibling, { recursive: true }))
+      yield* Effect.promise(() => fs.symlink(vault, path.join(location.directory, "local_docs")))
+      const access = yield* FileAccess.Service
+
+      // A sibling prefix (/outside/vault2 vs target /outside/vault) must NOT match.
+      const viaSibling = yield* access.resolve({ path: path.join(sibling, "x.md"), kind: "file" })
+      expect(viaSibling.externalDirectory).toBeDefined()
+      expect(viaSibling.absolute).toBe(AbsolutePath.make(path.join(sibling, "x.md")))
+
+      // A plain external path stays external.
+      const plain = yield* access.resolve({ path: path.join(outside.path, "other.md"), kind: "file" })
+      expect(plain.externalDirectory).toBeDefined()
+      expect(plain.resource).toBe(slash(path.join(outside.path, "other.md")))
+
+      // The mapped target itself stays internal.
+      const mapped = yield* access.resolve({ path: path.join(vault, "x.md"), kind: "file" })
+      expect(mapped.externalDirectory).toBeUndefined()
+      expect(mapped.resource).toBe("local_docs/x.md")
+    }).pipe(provide(requests))
+  })
+})
