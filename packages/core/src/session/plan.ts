@@ -89,13 +89,14 @@ function slugOf(input: { id: string; title?: string }) {
 }
 
 const listPlanFiles = (dir: string) =>
-  Effect.promise(() => fs.readdir(dir)).pipe(
+  // Swallow readdir failures (e.g. missing plan dir on a fresh worktree) inside
+  // the promise: a rejection in Effect.promise is a defect, so orElseSucceed
+  // on the outside could never catch it (same idiom as ConfigFork loaders).
+  Effect.promise(() => fs.readdir(dir).then(undefined, () => [] as string[])).pipe(
     Effect.map((entries) => entries.filter((entry) => entry.endsWith(".md")).map((entry) => path.join(dir, entry))),
-    Effect.orElseSucceed((): string[] => []),
   )
 
-export const fileExists = (file: string) =>
-  Effect.promise(() => fs.stat(file).then(() => true)).pipe(Effect.orElseSucceed((): boolean => false))
+export const fileExists = (file: string) => Effect.promise(() => fs.stat(file).then(() => true, () => false))
 
 export const plan = Effect.fn("SessionPlan.plan")(function* (
   input: { id: string; title?: string; metadata?: Record<string, unknown> },
