@@ -1,6 +1,6 @@
 Use this tool to register a plan file (that you have written or are about to write with the write tool) as the active plan.
 
-This tool does NOT write the plan file. You author the plan content yourself with the write/edit tools. This tool points the session at the file you choose so that subsequent turns and the build agent target it.
+This tool does NOT write the plan file. You author the plan content yourself with the write/edit tools. This tool points the session at the file you choose so that subsequent turns and the ${planAgent} agent target it.
 
 You decide whether the plan is a new top-level plan or a subplan through the FILENAME you pass via `name`:
 - New top-level plan: use a plain iteration, e.g. `01-feature-x.md` (or omit `name` to auto-generate the next top-level iteration).

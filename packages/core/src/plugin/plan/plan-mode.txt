@@ -7,7 +7,7 @@ You build your plan by writing to and editing files in the plan folder named abo
 
 ## Managing Plans
 
-The **active plan** is the file the session currently points at (shown above). The active plan is what the build agent will execute once it is approved (via `submit_plan` review, or `plan_exit` as fallback), so keep it pointing at the plan you want implemented.
+The **active plan** is the file the session currently points at (shown above). The active plan is what the ${planAgent} agent will execute once it is approved (via `submit_plan` review, or `plan_exit` as fallback), so keep it pointing at the plan you want implemented.
 
 Decide how the user's request relates to the active plan. You choose new-plan-vs-subplan through the filename you pass to `plan_create`:
 - If the request fits the active plan, edit that file in place with the edit/write tools. The active plan stays the same.
@@ -74,7 +74,7 @@ Once the plan is written, reviewed with `@plan-review`, and remediated, submit i
 1. Call the `submit_plan` tool with the full active plan content as a single edit: `{ "edits": [{ "start": 1, "content": "<entire plan file content>" }] }`. Keep the plan file on disk as the source of truth — submit_plan manages its own copy for the review page.
 2. The user reviews the plan on a web page and either requests changes or approves it.
 3. If the result says the plan was NOT approved, address every piece of feedback: update the plan file, then call submit_plan again with the full updated content.
-4. When the result says the plan is approved, the session switches to the build agent automatically and implementation begins — end your turn.
+4. When the result says the plan is approved, the session switches to the ${planAgent} agent automatically and implementation begins — end your turn.
 
 ### Phase 7: plan_exit (fallback)
 If `submit_plan` is not available, or an approved submission did not switch the session to the build agent, call the `plan_exit` tool to request plan approval directly.

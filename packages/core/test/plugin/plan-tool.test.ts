@@ -2,10 +2,16 @@ import { describe, expect } from "bun:test"
 import type { Plugin } from "@opencode/plugin/effect"
 import type { ToolHooks } from "@opencode/plugin/effect/tool"
 import { DateTime, Effect } from "effect"
+import fs from "fs/promises"
+import os from "os"
+import path from "path"
 import { Agent } from "@opencode/core/agent"
 import { Environment } from "@opencode/core/environment/index"
 import { Form } from "@opencode/core/form"
+import { Location } from "@opencode/core/location"
 import { Permission } from "@opencode/core/permission"
+import { Project } from "@opencode/core/project"
+import { AbsolutePath } from "@opencode/core/schema"
 import { SessionInbox } from "@opencode/core/session/inbox"
 import { SessionMessage } from "@opencode/core/session/message"
 import { PlanTool } from "@opencode/core/tool/plugin/plan"
@@ -25,8 +31,9 @@ const die = () => Effect.die("unused")
 /**
  * Activates the PlanTool plugin against stubbed domains with an in-memory session,
  * capturing the registered execute.after hook and every session mutation.
+ * `location` overrides the plugin location (fork config is read per location).
  */
-const run = Effect.fnUntraced(function* () {
+const run = Effect.fnUntraced(function* (location?: Location.Info) {
   const metadata: Record<string, unknown> = {}
   const updates: Array<Record<string, unknown>> = []
   const switches: Array<Agent.ID> = []
@@ -61,6 +68,7 @@ const run = Effect.fnUntraced(function* () {
   const driver = Environment.makeMemoryDriver()
   yield* PlanTool.Plugin.effect(
     host({
+      ...(location ? { location } : {}),
       session,
       tool: {
         transform: (callback) => {
@@ -174,6 +182,30 @@ describe("plan tool submit_plan approval hook", () => {
       yield* toolHook(submitResult(APPROVED))
       expect(switches).toEqual([build])
       expect(updates).toHaveLength(1)
+    }),
+  )
+
+  it.effect("switches to the fork-configured plan agent when set", () =>
+    Effect.gen(function* () {
+      // Project-local fork config through the real loadForLocation path.
+      const dir = path.join(os.tmpdir(), `plan-agent-test-${Date.now()}`)
+      yield* Effect.promise(() => fs.mkdir(path.join(dir, ".opencode"), { recursive: true }))
+      yield* Effect.promise(() =>
+        fs.writeFile(path.join(dir, ".opencode", "opencode-fork.json"), JSON.stringify({ plan: { agent: "impl-custom" } })),
+      )
+      const { toolHook, switches } = yield* run(
+        new Location.Info({
+          directory: AbsolutePath.make(dir),
+          project: {
+            id: Project.ID.global,
+            directory: AbsolutePath.make(dir),
+            canonical: AbsolutePath.make(dir),
+          },
+        }),
+      )
+      yield* toolHook(submitResult(APPROVED))
+      expect(switches).toEqual([Agent.ID.make("impl-custom")])
+      yield* Effect.promise(() => fs.rm(dir, { recursive: true, force: true }))
     }),
   )
 })

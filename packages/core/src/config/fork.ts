@@ -23,6 +23,10 @@ const PlanSchema = Schema.Struct({
   prompt: Schema.optional(Schema.String).annotate({
     description: "Inline plan-mode reminder prompt. Supports a ${planInfo} placeholder (resolved to the plan-file status line).",
   }),
+  agent: Schema.optional(Schema.String).annotate({
+    description:
+      "Primary agent id that takes over after plan approval (plan_exit or an approved submit_plan review). Must be an existing primary agent. Default: build.",
+  }),
 })
 
 // Mirrors opencode.json's `agents` section so the fork can configure agents (including plan)

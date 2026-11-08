@@ -29,6 +29,9 @@ export const Plugin = define({
   id: "opencode.plan",
   effect: Effect.fn(function* (ctx) {
     const fork = yield* ConfigFork.loadForLocation(ctx.location)
+    // Primary agent that takes over after plan approval (fork plan.agent, default build).
+    const exitAgent = Agent.ID.make(fork.plan?.agent ?? "build")
+    const exitName = fork.plan?.agent ?? "build"
     const directory = PlanPath.resolveDir(fork.plan?.path, ctx.location)
     const convention = SessionPlan.describeNameTemplate(fork.plan?.name ?? "${iteration}-${slug}.md")
     const prompt = fork.plan?.prompt ?? PLAN_MODE
@@ -48,7 +51,7 @@ export const Plugin = define({
       const planInfo = exists
         ? `Active plan: ${planRel}. ${folderNote}`
         : `No plan file exists yet. Create your plan in ${dirRel} using the write tool, following the convention ${convention} — use iteration ${resolved.iteration} (e.g. ${path.basename(resolved.path)}). ${folderNote} After writing it, call plan_create with the filename you used (via the \`name\` parameter) so the session points at it.`
-      return prompt.replace("${planInfo}", () => planInfo)
+      return prompt.replace("${planInfo}", () => planInfo).replaceAll("${planAgent}", exitName)
     })
 
     yield* ctx.agent.transform((editor) => {
@@ -72,7 +75,16 @@ export const Plugin = define({
         // `question` allow already comes from the upstream AgentPlugin.
         item.permissions.push({ action: "plan_complete", resource: "*", effect: "allow" })
       })
+      if (exitAgent !== build) {
+        // The fork-configured implementation agent needs the same plan_complete
+        // access so the review loop works after a non-build switch.
+        editor.update(exitAgent, (item) => {
+          item.permissions.push({ action: "plan_complete", resource: "*", effect: "allow" })
+        })
+      }
       for (const id of ["general", "explore", "compaction", "title", "summary"]) {
+        // The configured exit agent is exempt from the blanket plan-tool denies.
+        if (id === exitName) continue
         editor.update(Agent.ID.make(id), (item) => {
           item.permissions.push({ action: "plan_create", resource: "*", effect: "deny" })
           item.permissions.push({ action: "plan_exit", resource: "*", effect: "deny" })

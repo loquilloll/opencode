@@ -14,7 +14,6 @@ import CREATE_DESCRIPTION from "./plan/create.txt"
 import EXIT_DESCRIPTION from "./plan/exit.txt"
 
 const plan = Agent.ID.make("plan")
-const build = Agent.ID.make("build")
 
 const CreateInput = Schema.Struct({
   name: Schema.optional(Schema.String).annotate({
@@ -42,12 +41,15 @@ export const Plugin = {
     const forms = yield* Form.Service
     const permission = yield* Permission.Service
     const fork = yield* ConfigFork.loadForLocation(ctx.location)
+    // Primary agent that takes over after plan approval (fork plan.agent, default build).
+    const exitAgent = Agent.ID.make(fork.plan?.agent ?? "build")
+    const exitName = fork.plan?.agent ?? "build"
 
     yield* ctx.tool.transform((editor) =>
       editor.add({
         name: "plan_create",
         options: { codemode: false },
-        description: CREATE_DESCRIPTION,
+        description: CREATE_DESCRIPTION.replaceAll("${planAgent}", exitName),
         input: CreateInput,
         output: CreateOutput,
         execute: (input, context) =>
@@ -114,7 +116,7 @@ export const Plugin = {
           },
         },
       })
-      yield* ctx.session.switchAgent({ sessionID, agent: build })
+      yield* ctx.session.switchAgent({ sessionID, agent: exitAgent })
       yield* ctx.session.synthetic({
         sessionID,
         text: `The plan at ${planRel} has been approved. You are now in implementation mode — execute the plan. When implementation is complete and verified, call the plan_complete tool to trigger code review.`,
@@ -125,7 +127,7 @@ export const Plugin = {
       editor.add({
         name: "plan_exit",
         options: { codemode: false },
-        description: EXIT_DESCRIPTION,
+        description: EXIT_DESCRIPTION.replaceAll("${planAgent}", exitName),
         input: ExitInput,
         output: ExitOutput,
         execute: (_input, context) =>
@@ -162,11 +164,11 @@ export const Plugin = {
                   {
                     key: "q0",
                     title: "Build Agent",
-                    description: `Plan at ${planRel} is complete. Would you like to switch to the build agent and start implementing?`,
+                    description: `Plan at ${planRel} is complete. Would you like to switch to the ${exitName} agent and start implementing?`,
                     type: "string",
                     custom: true,
                     options: [
-                      { value: "Yes", label: "Yes", description: "Switch to build agent and start implementing the plan" },
+                      { value: "Yes", label: "Yes", description: `Switch to the ${exitName} agent and start implementing the plan` },
                       { value: "No", label: "No", description: "Stay with plan agent to continue refining the plan" },
                     ],
                   },
@@ -179,13 +181,13 @@ export const Plugin = {
               )
             }
             if (state.answer["q0"] === "No") {
-              return yield* Effect.fail(new ToolFailure({ message: "The user declined switching to the build agent" }))
+              return yield* Effect.fail(new ToolFailure({ message: `The user declined switching to the ${exitName} agent` }))
             }
 
             yield* startImplementation(context.sessionID)
             return {
               output: { plan: planRel, switched: true },
-              content: "User approved switching to build agent. Wait for further instructions.",
+              content: `User approved switching to the ${exitName} agent. Wait for further instructions.`,
               metadata: {},
             }
           }).pipe(
