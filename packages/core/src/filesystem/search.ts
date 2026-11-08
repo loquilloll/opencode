@@ -271,10 +271,13 @@ const layer = (options?: Options) =>
       // Workspace-backed Locations resolve in a remote sandbox; fff would index the local server directory
       // in-process and serve wrong results. Ripgrep routes through the Location environment spawner.
       if (location.workspaceID) return ripgrepLayer
-      if (options?.fff === false || (options?.fff === undefined && process.platform === "win32") || !Fff.available())
-        return ripgrepLayer
+      // Fork: ripgrep index unless fff is explicitly enabled, so `@` shares the tools'
+      // symlink/ignore/hidden/depth behavior — fff honors none of those. The server's
+      // routes.ts replaces this node with configured({fff: undefined}), so the default
+      // must live here rather than in the node export.
+      if (options?.fff !== true || !Fff.available() || Protected.isHome(location.directory)) return ripgrepLayer
       // Non-VCS locations can contain many repositories, so avoid eagerly content-indexing the entire aggregate tree.
-      return location.vcs && !Protected.isHome(location.directory) ? fffLayer : ripgrepLayer
+      return location.vcs ? fffLayer : ripgrepLayer
     }),
   )
 
@@ -282,6 +285,4 @@ export function configured(options?: Options) {
   return makeLocationNode({ service: Service, layer: layer(options), deps: [Location.node, Ripgrep.node] })
 }
 
-// Fork: force the ripgrep index so `@` matches the grep/glob tools (symlinks,
-// depth cap, hidden, ignore globs, ignore files). fff honors none of those.
-export const node = configured({ fff: false })
+export const node = configured()
