@@ -232,6 +232,34 @@ describe("Ripgrep", () => {
     }),
   )
 
+  it.live("caps traversal depth by default and honors maxDepth overrides", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const chain = Array.from({ length: 17 }, (_, index) => `d${index}`)
+      const deep = path.join(tmp.path, ...chain, "deep.txt")
+      yield* Effect.promise(() => Bun.write(deep, "needle\n"))
+      const expected = RelativePath.make(`${chain.join("/")}/deep.txt`)
+      const ripgrep = yield* Ripgrep.Service
+
+      // 17 levels beyond the root exceeds the default cap of 15.
+      const bounded = yield* ripgrep.find({ cwd: tmp.path, pattern: "**/*.txt", limit: 10 })
+      expect(bounded.map((item) => item.path)).toEqual([])
+
+      const globbed = yield* ripgrep.glob({ cwd: tmp.path, pattern: "**/*.txt", limit: 10 })
+      expect(globbed.map((item) => item.path)).toEqual([])
+
+      const matches = yield* ripgrep.grep({ cwd: tmp.path, pattern: "needle", limit: 10 })
+      expect(matches.map((item) => item.entry.path)).toEqual([])
+
+      const raised = yield* ripgrep.find({ cwd: tmp.path, pattern: "**/*.txt", limit: 10, maxDepth: 20 })
+      expect(raised.map((item) => item.path)).toEqual([expected])
+
+      // follow: false restores uncapped traversal.
+      const unfollowed = yield* ripgrep.find({ cwd: tmp.path, pattern: "**/*.txt", limit: 10, follow: false })
+      expect(unfollowed.map((item) => item.path)).toEqual([expected])
+    }),
+  )
+
   it.live("applies extra ignore files additively", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped()

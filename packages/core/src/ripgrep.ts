@@ -59,6 +59,7 @@ export interface FindInput {
   readonly exclude?: readonly string[]
   readonly hidden?: boolean
   readonly follow?: boolean
+  readonly maxDepth?: number
   readonly ignoreFiles?: readonly string[]
   readonly signal?: AbortSignal
   readonly onEntry?: (entry: Entry) => Effect.Effect<void>
@@ -70,6 +71,7 @@ export interface GlobInput {
   readonly limit: number
   readonly hidden?: boolean
   readonly follow?: boolean
+  readonly maxDepth?: number
   readonly ignoreFiles?: readonly string[]
   readonly signal?: AbortSignal
 }
@@ -83,6 +85,7 @@ export interface GrepInput {
   readonly caseSensitive?: boolean
   readonly limit: number
   readonly follow?: boolean
+  readonly maxDepth?: number
   readonly ignoreFiles?: readonly string[]
   readonly signal?: AbortSignal
 }
@@ -114,6 +117,15 @@ function resolveIgnoreFile(entry: string, cwd: string) {
 
 const ignoreFileArgs = (entries: readonly string[] | undefined, cwd: string) =>
   (entries ?? []).map((entry) => `--ignore-file=${resolveIgnoreFile(entry, cwd)}`)
+
+// While following, traversal is capped so symlink fan-out (rg dedups loops but
+// not diamond links) cannot multiply a search unboundedly. rg counts levels
+// beyond the search root. No cap when follow is explicitly false.
+const DEFAULT_MAX_DEPTH = 15
+const maxDepthArgs = (input: { follow?: boolean; maxDepth?: number }) =>
+  input.maxDepth !== undefined || (input.follow ?? true)
+    ? [`--max-depth=${input.maxDepth ?? DEFAULT_MAX_DEPTH}`]
+    : []
 
 const layer = Layer.effect(
   Service,
@@ -191,6 +203,7 @@ const layer = Layer.effect(
             // Symlinks are followed by default; explicit follow: false opts out. Missing
             // ignore files and broken links only warn (--no-messages keeps them quiet).
             ...(input.follow ?? true ? ["--follow"] : []),
+            ...maxDepthArgs(input),
             ...ignoreFileArgs(input.ignoreFiles, input.cwd),
             `--glob=${input.pattern}`,
             // Positive globs override rg's hidden-file filter; exclude before applying the result limit.
@@ -221,6 +234,7 @@ const layer = Layer.effect(
             "--no-messages",
             ...(input.hidden ? ["--hidden"] : []),
             ...(input.follow ?? true ? ["--follow"] : []),
+            ...maxDepthArgs(input),
             ...ignoreFileArgs(input.ignoreFiles, input.cwd),
             ...(input.pattern === "*" ? [] : [`--glob=${input.pattern}`]),
             ...(input.exclude ?? []).map((pattern) => `--glob=!${pattern}`),
@@ -247,6 +261,7 @@ const layer = Layer.effect(
             "--hidden",
             "--no-messages",
             ...(input.follow ?? true ? ["--follow"] : []),
+            ...maxDepthArgs(input),
             ...ignoreFileArgs(input.ignoreFiles, input.cwd),
             ...(input.literal ? ["--fixed-strings"] : []),
             ...(input.caseSensitive === false ? ["--ignore-case"] : []),
