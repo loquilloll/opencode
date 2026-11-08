@@ -2,9 +2,12 @@ export * as PlanImplPlugin from "./plan-impl.js"
 
 import type { Context } from "@opencode/plugin/effect/plugin"
 import { ToolFailure } from "@opencode/ai/effect"
+import { Agent } from "@opencode/schema/agent"
 import type { Session } from "@opencode/schema/session"
-import { Effect, Schema } from "effect"
+import { Effect, Schema, Stream } from "effect"
 import { Permission } from "../permission.js"
+
+const plan = Agent.ID.make("plan")
 
 type PlanImplStatus = "implementing" | "paused" | "reviewing" | "completed"
 
@@ -204,6 +207,36 @@ export const Plugin = {
           Effect.logWarning("plan implementation continuation failed", { sessionID: event.sessionID, cause }),
         ),
       ),
+    )
+
+    // Switching back to the plan agent means the user wants to keep planning
+    // (revise the active plan or start a new one): pause the implementation
+    // so the idle continuation stops pushing implementation prompts at the
+    // plan agent. A later approval (or /plan_impl resume) restarts it.
+    yield* ctx.event.subscribe({ types: ["session.agent.selected"] }).pipe(
+      Stream.runForEach((event) =>
+        Effect.gen(function* () {
+          if (event.type !== "session.agent.selected") return
+          if (event.data.agent !== plan || event.data.previous === plan) return
+          const state = yield* readState(event.data.sessionID)
+          if (state?.status !== "implementing" && state?.status !== "reviewing") return
+          const accounted = account(state)
+          yield* writeState(event.data.sessionID, { ...accounted, status: "paused", activeStartedAt: null })
+          yield* ctx.session.synthetic({
+            sessionID: event.data.sessionID,
+            text: `Plan implementation paused (${formatElapsed(accounted.timeUsedSeconds)} elapsed) — back in plan mode. Approve a plan (or /plan_impl resume) to continue implementation.`,
+            resume: false,
+          })
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to pause plan implementation on plan-mode switch", {
+              sessionID: event.data.sessionID,
+              cause,
+            }),
+          ),
+        ),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
     )
 
     // Until the next continuation restates the plan, a compacted history may not show it.

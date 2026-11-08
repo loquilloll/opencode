@@ -216,7 +216,14 @@ export const Plugin = {
           typeof content === "string" ? content : content?.map((part) => (part.type === "text" ? part.text : "")).join("")
         if (!text?.startsWith("Plan approved")) return
         const info = yield* ctx.session.get({ sessionID: event.sessionID })
-        if (info.metadata?.["planImpl"] !== undefined) return
+        // Only an in-flight implementation blocks; a paused or completed cycle
+        // is restarted by a fresh approval (e.g. after switching back to plan
+        // mode and revising or replacing the plan).
+        const prior = info.metadata?.["planImpl"]
+        if (prior !== null && typeof prior === "object" && "status" in prior) {
+          const status = (prior as { status: string }).status
+          if (status === "implementing" || status === "reviewing") return
+        }
         yield* startImplementation(event.sessionID)
       }).pipe(
         Effect.catchCause((cause) =>

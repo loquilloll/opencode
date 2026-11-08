@@ -31,10 +31,11 @@ const die = () => Effect.die("unused")
 /**
  * Activates the PlanTool plugin against stubbed domains with an in-memory session,
  * capturing the registered execute.after hook and every session mutation.
- * `location` overrides the plugin location (fork config is read per location).
+ * `location` overrides the plugin location (fork config is read per location);
+ * `initial` seeds session metadata (e.g. a prior planImpl state).
  */
-const run = Effect.fnUntraced(function* (location?: Location.Info) {
-  const metadata: Record<string, unknown> = {}
+const run = Effect.fnUntraced(function* (location?: Location.Info, initial?: Record<string, unknown>) {
+  const metadata: Record<string, unknown> = { ...initial }
   const updates: Array<Record<string, unknown>> = []
   const switches: Array<Agent.ID> = []
   const synthetics: Array<string> = []
@@ -208,6 +209,29 @@ describe("plan tool submit_plan approval hook", () => {
       yield* toolHook(submitResult(APPROVED))
       expect(switches).toEqual([Agent.ID.make("impl-custom")])
       yield* Effect.promise(() => fs.rm(dir, { recursive: true, force: true }))
+    }),
+  )
+
+  it.effect("restarts a paused implementation on re-approval", () =>
+    Effect.gen(function* () {
+      const { toolHook, updates, switches } = yield* run(undefined, {
+        planImpl: { status: "paused", title: "old", planPath: "/old.md", startedAt: 1, activeStartedAt: null, timeUsedSeconds: 30, reviewIteration: 0 },
+      })
+      yield* toolHook(submitResult(APPROVED))
+      expect(switches).toEqual([build])
+      expect(updates).toHaveLength(1)
+      expect((updates[0]?.["planImpl"] as { status: string }).status).toBe("implementing")
+    }),
+  )
+
+  it.effect("does not restart an in-flight implementation", () =>
+    Effect.gen(function* () {
+      const { toolHook, updates, switches } = yield* run(undefined, {
+        planImpl: { status: "implementing", title: "old", planPath: "/old.md", startedAt: 1, activeStartedAt: 1, timeUsedSeconds: 0, reviewIteration: 0 },
+      })
+      yield* toolHook(submitResult(APPROVED))
+      expect(updates).toHaveLength(0)
+      expect(switches).toHaveLength(0)
     }),
   )
 })
